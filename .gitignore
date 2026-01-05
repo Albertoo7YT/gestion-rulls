@@ -1,0 +1,36 @@
+# Dependencias
+node_modules
+
+# Variables de entorno
+.env
+.env.*
+
+# Builds
+dist
+.next
+
+# Logs y cobertura
+coverage
+
+# Sistema
+.DS_Store
+
+# Node
+node_modules
+npm-debug.log*
+
+# Next
+.next
+out
+
+# Nest
+/dist
+
+# Env
+.env
+
+# Docker
+*.pid
+
+# Backups
+backups

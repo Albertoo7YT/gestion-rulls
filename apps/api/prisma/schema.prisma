@@ -1,0 +1,297 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LocationType {
+  warehouse
+  retail
+}
+
+enum ProductType {
+  standard
+  quick
+}
+
+enum StockMoveType {
+  purchase
+  transfer
+  b2b_sale
+  b2c_sale
+  adjust
+  b2b_return
+  b2c_return
+}
+
+enum StockMoveChannel {
+  INTERNAL
+  B2B
+  B2C
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  received
+  cancelled
+}
+
+enum PriceRuleTarget {
+  public
+  b2b
+}
+
+enum PriceRuleScope {
+  all
+  category
+  supplier
+}
+
+enum PriceRuleType {
+  percent
+  fixed
+}
+
+enum UserRole {
+  admin
+}
+
+model Location {
+  id           Int          @id @default(autoincrement())
+  type         LocationType
+  name         String
+  city         String
+  active       Boolean      @default(true)
+  legalName    String?
+  taxId        String?
+  address      String?
+  postalCode   String?
+  province     String?
+  country      String?
+  phone        String?
+  contactName  String?
+  email        String?
+  paymentTerms String?
+  notes        String?
+  movesFrom    StockMove[]  @relation("MoveFrom")
+  movesTo      StockMove[]  @relation("MoveTo")
+  assignedWebOrders WebOrder[]
+}
+
+model Product {
+  sku      String      @id
+  name     String
+  type     ProductType
+  photoUrl String?
+  photoUrls Json?
+  description String?
+  manufacturerRef String?
+  color String?
+  cost     Decimal?    @db.Decimal(10, 2)
+  rrp      Decimal?    @db.Decimal(10, 2)
+  b2bPrice Decimal?    @db.Decimal(10, 2)
+  active   Boolean     @default(true)
+  supplierId Int?
+  moveLines StockMoveLine[]
+  webOrderLines WebOrderLine[]
+  categories ProductCategory[]
+  supplier  Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+model ProductCounter {
+  id         Int @id
+  nextNumber Int @default(1)
+}
+
+model Settings {
+  id                  Int      @id
+  wooSyncEnabled      Boolean  @default(true)
+  wooStockWarehouseIds Json
+  lastWooSyncAt       DateTime?
+  wooBaseUrl          String?
+  wooConsumerKey      String?
+  wooConsumerSecret   String?
+  wooSyncProducts     Boolean  @default(false)
+  wooSyncImages       Boolean  @default(false)
+}
+
+model PaymentMethod {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  active Boolean @default(true)
+}
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  taxId     String?
+  email     String?
+  phone     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  orders    PurchaseOrder[]
+  products  Product[]
+  priceRules PriceRule[] @relation("SupplierPriceRules")
+}
+
+model PurchaseOrder {
+  id         Int      @id @default(autoincrement())
+  number     String   @unique
+  status     PurchaseOrderStatus @default(draft)
+  supplierId Int
+  orderedAt  DateTime?
+  receivedAt DateTime?
+  notes      String?
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  lines      PurchaseOrderLine[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model PurchaseOrderLine {
+  id              Int      @id @default(autoincrement())
+  purchaseOrderId Int
+  sku             String
+  productName     String?
+  manufacturerRef String?
+  productType     ProductType?
+  quantity        Int
+  unitCost        Decimal? @db.Decimal(10, 2)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         UserRole @default(admin)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  auditLogs    AuditLog[]
+}
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+  method       String
+  path         String
+  action       String
+  entity       String?
+  entityId     String?
+  requestBody  Json?
+  responseBody Json?
+  statusCode   Int?
+  createdAt    DateTime @default(now())
+}
+
+model PriceRule {
+  id         Int            @id @default(autoincrement())
+  name       String
+  target     PriceRuleTarget
+  scope      PriceRuleScope
+  type       PriceRuleType
+  value      Decimal        @db.Decimal(10, 2)
+  priority   Int            @default(100)
+  active     Boolean        @default(true)
+  categoryId Int?
+  supplierId Int?
+  category   Category?      @relation("CategoryPriceRules", fields: [categoryId], references: [id])
+  supplier   Supplier?      @relation("SupplierPriceRules", fields: [supplierId], references: [id])
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  type      String
+  name      String
+  taxId     String?
+  email     String?
+  phone     String?
+  notes     String?
+  active    Boolean  @default(true)
+  moves     StockMove[]
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id       Int               @id @default(autoincrement())
+  name     String            @unique
+  products ProductCategory[]
+  priceRules PriceRule[] @relation("CategoryPriceRules")
+}
+
+model ProductCategory {
+  productSku String
+  categoryId Int
+  product    Product   @relation(fields: [productSku], references: [sku])
+  category   Category  @relation(fields: [categoryId], references: [id])
+
+  @@id([productSku, categoryId])
+}
+
+model StockMove {
+  id         Int             @id @default(autoincrement())
+  date       DateTime        @default(now())
+  type       StockMoveType
+  channel    StockMoveChannel
+  fromId     Int?
+  toId       Int?
+  customerId Int?
+  relatedMoveId Int?
+  reference  String?
+  notes      String?
+  from       Location?       @relation("MoveFrom", fields: [fromId], references: [id])
+  to         Location?       @relation("MoveTo", fields: [toId], references: [id])
+  customer   Customer?       @relation(fields: [customerId], references: [id])
+  relatedMove StockMove?     @relation("RelatedMove", fields: [relatedMoveId], references: [id])
+  relatedMoves StockMove[]   @relation("RelatedMove")
+  lines      StockMoveLine[]
+}
+
+model StockMoveLine {
+  id        Int       @id @default(autoincrement())
+  moveId    Int
+  sku       String
+  quantity  Int
+  unitPrice Decimal?  @db.Decimal(10, 2)
+  unitCost  Decimal?  @db.Decimal(10, 2)
+  move      StockMove @relation(fields: [moveId], references: [id])
+  product   Product   @relation(fields: [sku], references: [sku])
+}
+
+model WebOrder {
+  wooOrderId          String   @id
+  number              String
+  status              String
+  createdAtWoo        DateTime
+  customerName        String
+  email               String
+  total               Decimal  @db.Decimal(10, 2)
+  currency            String
+  assignedWarehouseId Int?
+  importedAt          DateTime
+  processedAt         DateTime?
+  notes               String?
+  assignedWarehouse   Location? @relation(fields: [assignedWarehouseId], references: [id])
+  lines               WebOrderLine[]
+}
+
+model WebOrderLine {
+  id         Int     @id @default(autoincrement())
+  wooOrderId String
+  sku        String
+  qty        Int
+  price      Decimal @db.Decimal(10, 2)
+  lineTotal  Decimal @db.Decimal(10, 2)
+  order      WebOrder @relation(fields: [wooOrderId], references: [wooOrderId])
+  product    Product  @relation(fields: [sku], references: [sku])
+}
