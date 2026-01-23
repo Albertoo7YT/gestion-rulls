@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../../lib/api";
+import CsvMappingWizard from "../../components/csv-mapping-wizard";
+import { filterAndScoreSkus } from "../../lib/sku-search";
 
 type Product = {
   sku: string;
@@ -62,39 +64,37 @@ export default function ProductsPage() {
   const [showImport, setShowImport] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
+  const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(false);
 
   const filtered = useMemo(() => {
-    const list = products.filter((p) =>
-      `${p.sku} ${p.name}`.toLowerCase().includes(search.toLowerCase()),
-    );
-    const sorted = [...list];
-    switch (sortBy) {
-      case "name-desc":
-        sorted.sort((a, b) => a.name.localeCompare(b.name) * -1);
-        break;
-      case "sku-asc":
-        sorted.sort((a, b) => a.sku.localeCompare(b.sku));
-        break;
-      case "sku-desc":
-        sorted.sort((a, b) => a.sku.localeCompare(b.sku) * -1);
-        break;
-      case "stock-asc":
-        sorted.sort((a, b) => (a.stock ?? 0) - (b.stock ?? 0));
-        break;
-      case "stock-desc":
-        sorted.sort((a, b) => (b.stock ?? 0) - (a.stock ?? 0));
-        break;
-      case "pvp-asc":
-        sorted.sort((a, b) => (a.rrp ?? 0) - (b.rrp ?? 0));
-        break;
-      case "pvp-desc":
-        sorted.sort((a, b) => (b.rrp ?? 0) - (a.rrp ?? 0));
-        break;
-      default:
-        sorted.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-    }
+    const scored = filterAndScoreSkus(products, search);
+    const scoreMap = new Map(scored.map(({ item, score }) => [item.sku, score]));
+    const sorted = scored.map(({ item }) => item);
+    sorted.sort((a, b) => {
+      const scoreA = scoreMap.get(a.sku) ?? 0;
+      const scoreB = scoreMap.get(b.sku) ?? 0;
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      switch (sortBy) {
+        case "name-desc":
+          return a.name.localeCompare(b.name) * -1;
+        case "sku-asc":
+          return a.sku.localeCompare(b.sku);
+        case "sku-desc":
+          return a.sku.localeCompare(b.sku) * -1;
+        case "stock-asc":
+          return (a.stock ?? 0) - (b.stock ?? 0);
+        case "stock-desc":
+          return (b.stock ?? 0) - (a.stock ?? 0);
+        case "pvp-asc":
+          return (a.rrp ?? 0) - (b.rrp ?? 0);
+        case "pvp-desc":
+          return (b.rrp ?? 0) - (a.rrp ?? 0);
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
     return sorted;
   }, [products, search, sortBy]);
 
@@ -307,14 +307,20 @@ export default function ProductsPage() {
       .filter((v) => v.length > 0);
   }
 
-  async function importProductsCsv(file: File) {
+  async function importProductsCsv(rows: Record<string, string>[]) {
     setStatus(null);
-    const text = await file.text();
-    const rows = parseCsv(text);
+    setImportStatus(null);
+    const existingSkus = new Set(products.map((p) => p.sku));
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
     for (const row of rows) {
       const sku = row.sku?.trim();
       const name = row.name?.trim();
-      if (!name) continue;
+      if (!sku && !name) {
+        skipped += 1;
+        continue;
+      }
       const extraPhotos = parsePhotoUrls(row.photoUrls);
       const payload = {
         sku,
@@ -331,20 +337,53 @@ export default function ProductsPage() {
         categoryIds: parseCategoryIds(row.categoryIds),
       };
       const type = (row.type ?? "standard").toLowerCase();
+      if (!sku || sku.length === 0) {
+        skipped += 1;
+        continue;
+      }
+      if (!name) {
+        if (sku && existingSkus.has(sku)) {
+          const updatePayload = { ...payload };
+          delete updatePayload.sku;
+          delete updatePayload.name;
+          if (Object.keys(updatePayload).length > 0) {
+            await api.put(`/products/${encodeURIComponent(sku)}`, updatePayload);
+            updated += 1;
+          } else {
+            skipped += 1;
+          }
+        } else {
+          skipped += 1;
+        }
+        continue;
+      }
+      if (onlyUpdateExisting && (!sku || !existingSkus.has(sku))) {
+        skipped += 1;
+        continue;
+      }
       if (type === "quick" && !sku) {
         await api.post("/products/quick", payload);
+        created += 1;
       } else if (sku) {
         await api.post("/products", payload);
+        created += 1;
+      } else {
+        skipped += 1;
       }
     }
     await loadProducts();
+    setImportStatus(
+      `Importados: ${created} nuevos, ${updated} actualizados, ${skipped} omitidos.`,
+    );
   }
 
-  async function importStockCsv(file: File) {
+  async function importStockCsv(rows: Record<string, string>[]) {
     setStatus(null);
-    const text = await file.text();
-    const rows = parseCsv(text);
-    const grouped: Record<string, { sku: string; quantity: number; unitCost?: number }[]> = {};
+    setImportStatus(null);
+    const grouped: Record<
+      string,
+      { sku: string; quantity: number; unitCost?: number }[]
+    > = {};
     for (const row of rows) {
       const locationId = row.locationId?.trim();
       const sku = row.sku?.trim();
@@ -361,6 +400,9 @@ export default function ProductsPage() {
         lines,
       });
     }
+    setImportStatus(
+      `Importados ${Object.keys(grouped).length} movimientos de stock.`,
+    );
   }
 
   async function saveEdit() {
@@ -728,33 +770,46 @@ export default function ProductsPage() {
 
       {showImport && (
         <div className="card stack import-card">
-        <strong>Importar CSV</strong>
-        <p className="muted">
-          Productos CSV: sku,name,type,photoUrl,photoUrls,description,manufacturerRef,color,cost,rrp,b2bPrice,active,categoryIds (ids separados por |)
-        </p>
-        <label className="stack">
-          <span className="muted">CSV productos</span>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) =>
-              e.target.files?.[0] && importProductsCsv(e.target.files[0])
-            }
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={onlyUpdateExisting}
+              onChange={(e) => setOnlyUpdateExisting(e.target.checked)}
+            />
+            Solo actualizar SKU existentes
+          </label>
+          <CsvMappingWizard
+            title="Importar productos CSV"
+            fields={[
+              { key: "sku", label: "SKU" },
+              { key: "name", label: "Nombre" },
+              { key: "type", label: "Tipo (standard/quick)" },
+              { key: "photoUrl", label: "Foto URL" },
+              { key: "photoUrls", label: "Fotos extra (|)" },
+              { key: "description", label: "Descripcion" },
+              { key: "manufacturerRef", label: "Ref fabricante" },
+              { key: "color", label: "Color" },
+              { key: "cost", label: "Coste" },
+              { key: "rrp", label: "PVP" },
+              { key: "b2bPrice", label: "Precio B2B" },
+              { key: "active", label: "Activo" },
+              { key: "categoryIds", label: "Categorias (ids |)" },
+            ]}
+            onImport={importProductsCsv}
+            onStatus={setImportStatus}
           />
-        </label>
-        <p className="muted">
-          Stock CSV: locationId,sku,quantity,unitCost
-        </p>
-        <label className="stack">
-          <span className="muted">CSV stock</span>
-          <input
-            type="file"
-            accept=".csv"
-            onChange={(e) =>
-              e.target.files?.[0] && importStockCsv(e.target.files[0])
-            }
+          <CsvMappingWizard
+            title="Importar stock CSV"
+            fields={[
+              { key: "locationId", label: "Almacen (locationId)", required: true },
+              { key: "sku", label: "SKU", required: true },
+              { key: "quantity", label: "Cantidad", required: true },
+              { key: "unitCost", label: "Coste unitario" },
+            ]}
+            onImport={importStockCsv}
+            onStatus={setImportStatus}
           />
-        </label>
+          {importStatus && <p className="muted">{importStatus}</p>}
         </div>
       )}
 
@@ -865,6 +920,9 @@ export default function ProductsPage() {
               <div className="product-body">
                 <div className="product-title">{p.name}</div>
                 <div className="muted">{p.sku}</div>
+                {p.manufacturerRef && (
+                  <div className="muted">Ref: {p.manufacturerRef}</div>
+                )}
                 <div className="product-meta">
                   <span>Stock: {p.stock ?? 0}</span>
                   <span>PVP: {p.rrp ?? "-"}</span>
@@ -875,8 +933,8 @@ export default function ProductsPage() {
                       ? p.categoryNames.join(", ")
                       : "-"}
                   </span>
-                  <span>Tipo: {p.type}</span>
-                  <span>Activo: {p.active ? "Si" : "No"}</span>
+                  {p.type === "quick" && <span>Tipo: quick</span>}
+                  {!p.active && <span>Inactivo</span>}
                 </div>
                 <div className="row product-actions">
                   <button

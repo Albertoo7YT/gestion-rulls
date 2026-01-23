@@ -959,6 +959,54 @@ button.secondary {
   max-width: 100%;
 }
 
+.csv-wizard {
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  gap: 12px;
+}
+
+.csv-controls {
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.csv-preview {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.csv-preview-row {
+  display: grid;
+  gap: 12px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 1fr);
+}
+
+.csv-preview-col {
+  display: grid;
+  gap: 6px;
+  background: var(--bg-2);
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+}
+
+.csv-preview-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+}
+
+.csv-preview-value {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+}
+
 .product-detail-media img {
   width: 100%;
   border-radius: 16px;

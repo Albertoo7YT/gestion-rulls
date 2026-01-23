@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
+import CsvMappingWizard from "../../components/csv-mapping-wizard";
 
 type Supplier = { id: number; name: string };
 
@@ -116,59 +117,29 @@ export default function PurchasesPage() {
     setShowForm(true);
   }
 
-  function parseCsvLines(text: string) {
-    const rows = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((line) => line.split(",").map((cell) => cell.trim()));
-
-    if (!rows.length) return [];
-    const header = rows[0].map((cell) => cell.toLowerCase());
-    const hasHeader = header.includes("sku");
-    const startIndex = hasHeader ? 1 : 0;
-
+  async function handleCsvImport(rows: Record<string, string>[]) {
     const parsed: PurchaseOrderLine[] = [];
-    for (const row of rows.slice(startIndex)) {
-      const [
-        sku,
-        productName,
-        manufacturerRef,
-        productType,
-        quantity,
-        unitCost,
-      ] = row;
-
+    for (const row of rows) {
+      const sku = row.sku?.trim();
       if (!sku) continue;
-      const qty = Number(quantity || 1);
+      const qty = Number(row.quantity || 1);
       if (!Number.isFinite(qty) || qty <= 0) continue;
-      const cost = unitCost ? Number(unitCost) : undefined;
+      const cost = row.unitCost ? Number(row.unitCost) : undefined;
       parsed.push({
         sku,
-        productName: productName || undefined,
-        manufacturerRef: manufacturerRef || undefined,
-        productType: productType === "quick" ? "quick" : "standard",
+        productName: row.productName?.trim() || undefined,
+        manufacturerRef: row.manufacturerRef?.trim() || undefined,
+        productType: row.productType === "quick" ? "quick" : "standard",
         quantity: qty,
         unitCost: Number.isFinite(cost) ? cost : undefined,
       });
     }
-
-    return parsed;
-  }
-
-  async function handleCsvImport(file: File) {
-    try {
-      const text = await file.text();
-      const parsed = parseCsvLines(text);
-      if (!parsed.length) {
-        setCsvStatus("No se encontraron lineas validas en el CSV.");
-        return;
-      }
-      setLines((prev) => [...prev, ...parsed]);
-      setCsvStatus(`Importadas ${parsed.length} lineas.`);
-    } catch (err) {
-      setCsvStatus("No se pudo leer el CSV.");
+    if (!parsed.length) {
+      setCsvStatus("No se encontraron lineas validas en el CSV.");
+      return;
     }
+    setLines((prev) => [...prev, ...parsed]);
+    setCsvStatus(`Importadas ${parsed.length} lineas.`);
   }
 
   function addLine() {
@@ -324,25 +295,19 @@ export default function PurchasesPage() {
           <strong>Lineas</strong>
           {showCsvImport && (
             <>
-              <div className="row">
-                <label className="stack">
-                  <span className="muted">Importar CSV</span>
-                  <input
-                    className="input"
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      handleCsvImport(file);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-                <span className="muted">
-                  Formato: sku,productName,manufacturerRef,productType,quantity,unitCost
-                </span>
-              </div>
+              <CsvMappingWizard
+                title="Importar CSV"
+                fields={[
+                  { key: "sku", label: "SKU", required: true },
+                  { key: "productName", label: "Nombre del producto" },
+                  { key: "manufacturerRef", label: "Ref fabricante" },
+                  { key: "productType", label: "Tipo (standard/quick)" },
+                  { key: "quantity", label: "Cantidad", required: true },
+                  { key: "unitCost", label: "Coste unitario" },
+                ]}
+                onImport={handleCsvImport}
+                onStatus={setCsvStatus}
+              />
               {csvStatus && <p className="muted">{csvStatus}</p>}
             </>
           )}

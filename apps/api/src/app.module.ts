@@ -29,6 +29,7 @@ import { ReportsModule } from "./reports/reports.module";
 import { UsersModule } from "./users/users.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { SuggestionsModule } from "./suggestions/suggestions.module";
+import { CatalogModule } from "./catalog/catalog.module";
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { SuggestionsModule } from "./suggestions/suggestions.module";
     UsersModule,
     PricingModule,
     SuggestionsModule,
+    CatalogModule,
   ],
   controllers: [AppController],
   providers: [

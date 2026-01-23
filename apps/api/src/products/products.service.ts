@@ -13,6 +13,15 @@ export class ProductsService {
 
   list(query: ListProductsQueryDto) {
     const search = query.search?.trim() ?? "";
+    const normalized = search.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    const isExactSku =
+      normalized.length > 0 &&
+      (/^[0-9]+$/.test(normalized) || /^RU[0-9]+$/.test(normalized));
+    const exactSku = isExactSku
+      ? normalized.startsWith("RU")
+        ? normalized
+        : `RU${normalized}`
+      : "";
     return this.prisma.$queryRaw<
       {
         sku: string;
@@ -62,8 +71,32 @@ export class ProductsService {
         JOIN "StockMove" m ON m."id" = l."moveId"
         GROUP BY l."sku"
       ) outg ON outg."sku" = p."sku"
-      WHERE (${search} = '' OR p."sku" ILIKE '%' || ${search} || '%' OR p."name" ILIKE '%' || ${search} || '%')
-      ORDER BY p."sku" ASC
+      WHERE (
+        ${search} = ''
+        OR (
+          (
+            ${isExactSku}
+            AND regexp_replace(upper(p."sku"), '[^A-Z0-9]', '', 'g') = ${exactSku}
+          )
+          OR (
+            NOT ${isExactSku}
+            AND p."sku" ILIKE '%' || ${search} || '%'
+          )
+          OR p."name" ILIKE '%' || ${search} || '%'
+        )
+      )
+      ORDER BY
+        CASE
+          WHEN ${search} = '' THEN 0
+          WHEN ${isExactSku}
+            AND regexp_replace(upper(p."sku"), '[^A-Z0-9]', '', 'g') = ${exactSku}
+            THEN 0
+          WHEN p."sku" ILIKE ${search} || '%' THEN 1
+          WHEN p."sku" ILIKE '%' || ${search} || '%' THEN 2
+          WHEN p."name" ILIKE '%' || ${search} || '%' THEN 3
+          ELSE 4
+        END,
+        p."sku" ASC
     `;
   }
 

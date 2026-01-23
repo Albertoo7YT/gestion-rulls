@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/api";
+import { filterAndScoreSkus } from "../../lib/sku-search";
 
 type Product = {
   sku: string;
@@ -220,27 +221,15 @@ export default function PosPage() {
     });
   }, [returnOrders, returnSearchTerm]);
 
-  const filteredProducts = useMemo(() => {
-    const term = productSearch.trim().toLowerCase();
-    if (!term) return products;
-    return products.filter((p) =>
-      `${p.sku} ${p.name} ${p.manufacturerRef ?? ""} ${p.color ?? ""}`
-        .toLowerCase()
-        .includes(term),
-    );
-  }, [products, productSearch]);
-
   const flatResults = useMemo(() => {
-    const term = productSearch.trim().toLowerCase();
-    if (!term) return [];
-    const sorted = [...filteredProducts];
+    if (!productSearch.trim()) return [];
+    const scored = filterAndScoreSkus(products, productSearch);
+    const scoreMap = new Map(scored.map(({ item, score }) => [item.sku, score]));
+    const sorted = scored.map(({ item }) => item);
     sorted.sort((a, b) => {
-      const aExact = a.sku.toLowerCase() === term ? 1 : 0;
-      const bExact = b.sku.toLowerCase() === term ? 1 : 0;
-      if (aExact !== bExact) return bExact - aExact;
-      const aRef = (a.manufacturerRef || "").toLowerCase() === term ? 1 : 0;
-      const bRef = (b.manufacturerRef || "").toLowerCase() === term ? 1 : 0;
-      if (aRef !== bRef) return bRef - aRef;
+      const scoreA = scoreMap.get(a.sku) ?? 0;
+      const scoreB = scoreMap.get(b.sku) ?? 0;
+      if (scoreA !== scoreB) return scoreA - scoreB;
       const refA = (a.manufacturerRef || a.sku).toLowerCase();
       const refB = (b.manufacturerRef || b.sku).toLowerCase();
       if (refA !== refB) return refA.localeCompare(refB);
@@ -250,7 +239,7 @@ export default function PosPage() {
       return a.sku.localeCompare(b.sku);
     });
     return sorted;
-  }, [filteredProducts, productSearch]);
+  }, [products, productSearch]);
 
   async function addLine(product: Product) {
     const basePrice = channel === "B2B" ? product.b2bPrice : product.rrp;

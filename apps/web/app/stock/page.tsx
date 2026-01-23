@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "../../lib/api";
+import { filterAndScoreSkus } from "../../lib/sku-search";
 
 type Location = {
   id: number;
@@ -13,6 +14,7 @@ type Location = {
 type StockRow = {
   sku: string;
   name: string;
+  manufacturerRef?: string | null;
   quantity: number;
 };
 
@@ -21,6 +23,7 @@ export default function StockPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [locationKey, setLocationKey] = useState<string>("");
   const [stock, setStock] = useState<StockRow[]>([]);
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
   async function loadStock(key: string, locs: Location[]) {
@@ -73,6 +76,19 @@ export default function StockPage() {
     loadStock(locationKey, locations).catch((err) => setStatus(err.message));
   }, [locationKey, locations]);
 
+  const filtered = useMemo(() => {
+    const scored = filterAndScoreSkus(stock, search);
+    const scoreMap = new Map(scored.map(({ item, score }) => [item.sku, score]));
+    const sorted = scored.map(({ item }) => item);
+    sorted.sort((a, b) => {
+      const scoreA = scoreMap.get(a.sku) ?? 0;
+      const scoreB = scoreMap.get(b.sku) ?? 0;
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      return a.sku.localeCompare(b.sku);
+    });
+    return sorted;
+  }, [stock, search]);
+
   return (
     <div className="stack">
       <h2>Stock</h2>
@@ -93,6 +109,15 @@ export default function StockPage() {
               ))}
             </select>
           </label>
+          <label className="stack">
+            <span className="muted">Buscar (SKU o ref)</span>
+            <input
+              className="input"
+              placeholder="SKU o ref interna"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
           <button
             className="secondary"
             onClick={() =>
@@ -107,20 +132,22 @@ export default function StockPage() {
             <tr>
               <th>SKU</th>
               <th>Nombre</th>
+              <th>Ref interna</th>
               <th>Cantidad</th>
             </tr>
           </thead>
           <tbody>
-            {stock.map((row) => (
+            {filtered.map((row) => (
               <tr key={row.sku}>
                 <td>{row.sku}</td>
                 <td>{row.name}</td>
+                <td>{row.manufacturerRef ?? "-"}</td>
                 <td>{row.quantity}</td>
               </tr>
             ))}
-            {stock.length === 0 && (
+            {filtered.length === 0 && (
               <tr>
-                <td colSpan={3} className="muted">
+                <td colSpan={4} className="muted">
                   Sin stock para esta ubicacion
                 </td>
               </tr>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
+import { filterAndScoreSkus } from "../../lib/sku-search";
 
 type Product = {
   sku: string;
@@ -13,13 +14,20 @@ type Product = {
   categoryNames?: string[];
 };
 
+type Category = { id: number; name: string };
+
 const STORAGE_KEY = "catalog_selected_skus";
+const STORAGE_MODE_KEY = "catalog_mode";
+const STORAGE_CATEGORIES_KEY = "catalog_selected_categories";
 
 export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(true);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<"manual" | "categories">("manual");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,6 +41,25 @@ export default function CatalogPage() {
         setSelectedSkus(new Set());
       }
     }
+    const modeRaw =
+      typeof window !== "undefined"
+        ? localStorage.getItem(STORAGE_MODE_KEY)
+        : null;
+    if (modeRaw === "categories" || modeRaw === "manual") {
+      setMode(modeRaw);
+    }
+    const categoriesRaw =
+      typeof window !== "undefined"
+        ? localStorage.getItem(STORAGE_CATEGORIES_KEY)
+        : null;
+    if (categoriesRaw) {
+      try {
+        const list = JSON.parse(categoriesRaw) as number[];
+        setSelectedCategoryIds(list);
+      } catch {
+        setSelectedCategoryIds([]);
+      }
+    }
   }, []);
 
   async function loadProducts() {
@@ -41,22 +68,47 @@ export default function CatalogPage() {
     setProducts(data);
   }
 
+  async function loadCategories() {
+    const data = await api.get<Category[]>("/categories");
+    setCategories(data);
+  }
+
   useEffect(() => {
-    loadProducts().catch((err) => setStatus(err.message));
+    Promise.all([loadProducts(), loadCategories()]).catch((err) =>
+      setStatus(err.message),
+    );
   }, []);
 
   const filtered = useMemo(() => {
-    return products.filter((p) =>
-      `${p.sku} ${p.name}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
-    );
+    const scored = filterAndScoreSkus(products, search);
+    const scoreMap = new Map(scored.map(({ item, score }) => [item.sku, score]));
+    const sorted = scored.map(({ item }) => item);
+    sorted.sort((a, b) => {
+      const scoreA = scoreMap.get(a.sku) ?? 0;
+      const scoreB = scoreMap.get(b.sku) ?? 0;
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      return a.sku.localeCompare(b.sku);
+    });
+    return sorted;
   }, [products, search]);
 
-  const selectedProducts = useMemo(
-    () => products.filter((p) => selectedSkus.has(p.sku)),
-    [products, selectedSkus],
-  );
+  const selectedCategoryNames = useMemo(() => {
+    return categories
+      .filter((c) => selectedCategoryIds.includes(c.id))
+      .map((c) => c.name);
+  }, [categories, selectedCategoryIds]);
+
+  const selectedProducts = useMemo(() => {
+    if (mode === "categories") {
+      if (selectedCategoryNames.length === 0) return [];
+      return products.filter((p) =>
+        (p.categoryNames ?? []).some((name) =>
+          selectedCategoryNames.includes(name),
+        ),
+      );
+    }
+    return products.filter((p) => selectedSkus.has(p.sku));
+  }, [products, selectedSkus, mode, selectedCategoryNames]);
 
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((p) => selectedSkus.has(p.sku));
@@ -85,7 +137,46 @@ export default function CatalogPage() {
   function saveSelection() {
     const list = Array.from(selectedSkus);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    localStorage.setItem(STORAGE_MODE_KEY, mode);
+    localStorage.setItem(
+      STORAGE_CATEGORIES_KEY,
+      JSON.stringify(selectedCategoryIds),
+    );
     setStatus("Catalogo guardado");
+  }
+
+  async function downloadPdf() {
+    const skus = selectedProducts.map((p) => p.sku);
+    if (skus.length === 0) {
+      setStatus("Selecciona productos antes de generar el PDF");
+      return;
+    }
+    setStatus("Generando PDF...");
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    const baseUrl =
+      process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
+      "http://localhost:3001";
+    const res = await fetch(`${baseUrl}/catalog/pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ skus }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "catalogo.pdf";
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus("PDF generado");
   }
 
   return (
@@ -104,9 +195,9 @@ export default function CatalogPage() {
           <button className="secondary" onClick={saveSelection}>
             Guardar seleccion
           </button>
-          <a className="secondary button" href="/catalog/pdf" target="_blank">
+          <button className="secondary" onClick={downloadPdf}>
             PDF catalogo
-          </a>
+          </button>
         </div>
       </div>
 
@@ -114,44 +205,90 @@ export default function CatalogPage() {
         <div className="card stack">
           <div className="row">
             <label className="stack">
-              <span className="muted">Buscar</span>
-              <input
+              <span className="muted">Modo catalogo</span>
+              <select
                 className="input"
-                placeholder="Buscar..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+                value={mode}
+                onChange={(e) =>
+                  setMode(e.target.value === "categories" ? "categories" : "manual")
+                }
+              >
+                <option value="manual">Seleccion manual</option>
+                <option value="categories">Por categorias</option>
+              </select>
             </label>
-            <button
-              className="secondary"
-              type="button"
-              onClick={toggleSelectAllFiltered}
-              disabled={filtered.length === 0}
-            >
-              {allFilteredSelected ? "Quitar seleccion" : "Seleccionar todo"}
-            </button>
             <span className="muted">
-              Seleccionados: {selectedSkus.size}
+              Productos incluidos: {selectedProducts.length}
             </span>
           </div>
 
-          <div className="catalog-picker">
-            {filtered.map((p) => (
-              <label className="catalog-picker-item" key={p.sku}>
-                <input
-                  type="checkbox"
-                  checked={selectedSkus.has(p.sku)}
-                  onChange={() => toggleSelect(p.sku)}
-                />
-                <span>
-                  {p.name} ({p.sku})
+          {mode === "categories" && (
+            <div className="catalog-picker">
+              {categories.map((c) => (
+                <label className="catalog-picker-item" key={c.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedCategoryIds.includes(c.id)}
+                    onChange={(e) => {
+                      const set = new Set(selectedCategoryIds);
+                      if (e.target.checked) set.add(c.id);
+                      else set.delete(c.id);
+                      setSelectedCategoryIds(Array.from(set));
+                    }}
+                  />
+                  <span>{c.name}</span>
+                </label>
+              ))}
+              {categories.length === 0 && (
+                <div className="muted">Sin categorias</div>
+              )}
+            </div>
+          )}
+
+          {mode === "manual" && (
+            <>
+              <div className="row">
+                <label className="stack">
+                  <span className="muted">Buscar</span>
+                  <input
+                    className="input"
+                    placeholder="Buscar..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </label>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={toggleSelectAllFiltered}
+                  disabled={filtered.length === 0}
+                >
+                  {allFilteredSelected ? "Quitar seleccion" : "Seleccionar todo"}
+                </button>
+                <span className="muted">
+                  Seleccionados: {selectedSkus.size}
                 </span>
-              </label>
-            ))}
-            {filtered.length === 0 && (
-              <div className="muted">Sin productos</div>
-            )}
-          </div>
+              </div>
+
+              <div className="catalog-picker">
+                {filtered.map((p) => (
+                  <label className="catalog-picker-item" key={p.sku}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSkus.has(p.sku)}
+                      onChange={() => toggleSelect(p.sku)}
+                    />
+                    <span>
+                      {p.name} ({p.sku})
+                    </span>
+                  </label>
+                ))}
+                {filtered.length === 0 && (
+                  <div className="muted">Sin productos</div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
