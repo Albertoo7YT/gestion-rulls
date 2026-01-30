@@ -31,6 +31,11 @@ export class TransferMoveDto {
   @IsString()
   notes?: string;
 
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  customerId?: number;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => MoveLineDto)

@@ -14,10 +14,28 @@ type Product = {
   b2bPrice: number | null;
 };
 
-type Location = { id: number; name: string; type: "warehouse" | "retail" };
+type Location = {
+  id: number;
+  name: string;
+  type: "warehouse" | "retail";
+  city?: string;
+  active?: boolean;
+};
 
-type Customer = { id: number; name: string; type: "b2b" | "public" };
+type Customer = {
+  id: number;
+  name: string;
+  type: "b2b" | "public";
+  city?: string | null;
+};
 type PaymentMethod = { id: number; name: string };
+type Accessory = { id: number; name: string; cost?: number | null; price?: number | null };
+type LineAddOn = {
+  accessoryId: number;
+  name: string;
+  price: number | null;
+  quantity: number;
+};
 
 type PriceQuote = {
   sku: string;
@@ -55,6 +73,7 @@ type Line = {
   quantity: number | null;
   unitPrice?: number | null;
   discount?: number | null;
+  addOns?: LineAddOn[];
 };
 
 type ReturnLine = {
@@ -68,7 +87,9 @@ type ReturnLine = {
 export default function PosPage() {
   const [mode, setMode] = useState<"sale" | "transfer" | "return">("sale");
   const [products, setProducts] = useState<Product[]>([]);
+  const [accessories, setAccessories] = useState<Accessory[]>([]);
   const [warehouses, setWarehouses] = useState<Location[]>([]);
+  const [retails, setRetails] = useState<Location[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [fromId, setFromId] = useState<number | null>(null);
   const [toId, setToId] = useState<number | null>(null);
@@ -94,16 +115,19 @@ export default function PosPage() {
   );
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<
+    "paid" | "pending" | "partial"
+  >("paid");
+  const [paidAmount, setPaidAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [addToast, setAddToast] = useState<string | null>(null);
   const [giftSale, setGiftSale] = useState(false);
+  const [b2bDeposit, setB2bDeposit] = useState(false);
   const [addedSku, setAddedSku] = useState<string | null>(null);
   const [lastReportId, setLastReportId] = useState<number | null>(null);
   const [lastReportLabel, setLastReportLabel] = useState("");
-  const apiBase =
-    process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-    "http://localhost:3001";
+  const [editingAddOnsSku, setEditingAddOnsSku] = useState<string | null>(null);
   const sliderRef = useRef<HTMLDivElement | null>(null);
   const quoteCache = useRef<Map<string, number | null>>(new Map());
 
@@ -120,12 +144,21 @@ export default function PosPage() {
     setReturnOrders(data);
   }
 
+  async function loadAccessories() {
+    const data = await api.get<Accessory[]>("/accessories?active=true");
+    setAccessories(data);
+  }
+
   async function selectReturnOrder(id: number) {
     setReturnLoading(true);
     try {
       const detail = await api.get<MoveDetail>(`/moves/${id}`);
       setReturnOrderId(detail.id);
-      setReturnWarehouseId(detail.fromId ?? null);
+      const fallbackWarehouseId =
+        warehouses.find((w) => w.id === detail.fromId)?.id ??
+        warehouses[0]?.id ??
+        null;
+      setReturnWarehouseId(fallbackWarehouseId);
       setReturnLines(
         detail.lines.map((line) => ({
           sku: line.sku,
@@ -150,14 +183,18 @@ export default function PosPage() {
     Promise.all([
       api.get<Product[]>("/products"),
       api.get<Location[]>("/locations?type=warehouse"),
+        api.get<Location[]>("/locations?type=retail"),
       api.get<PaymentMethod[]>("/payment-methods"),
       api.get<MoveSummary[]>("/moves?types=b2b_sale,b2c_sale"),
+      api.get<Accessory[]>("/accessories?active=true"),
     ])
-      .then(([p, w, pm, moves]) => {
+      .then(([p, w, r, pm, moves, acc]) => {
         setProducts(p);
         setWarehouses(w);
+          setRetails(r);
         setPaymentMethods(pm);
         setReturnOrders(moves);
+        setAccessories(acc);
         if (pm[0]) setPaymentMethod(pm[0].name);
         if (w[0]) {
           setFromId(w[0].id);
@@ -176,11 +213,82 @@ export default function PosPage() {
   const channel: "B2B" | "B2C" =
     selectedCustomer?.type === "b2b" ? "B2B" : "B2C";
 
+  useEffect(() => {
+    if (channel !== "B2B") {
+      setB2bDeposit(false);
+    }
+    if (giftSale) {
+      setPaymentStatus("paid");
+      setPaidAmount("0");
+    } else {
+      setPaymentStatus(channel === "B2B" ? "pending" : "paid");
+      setPaidAmount("");
+    }
+  }, [channel, giftSale]);
+
   const parseNumberInput = (value: string) => {
     if (value === "") return null;
     const parsed = Number(value);
     return Number.isNaN(parsed) ? null : parsed;
   };
+
+  function toggleAddOn(sku: string, accessory: Accessory, checked: boolean) {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.sku !== sku) return line;
+        const current = line.addOns ?? [];
+        if (checked) {
+          if (current.find((a) => a.accessoryId === accessory.id)) {
+            return line;
+          }
+          return {
+            ...line,
+            addOns: [
+              ...current,
+              { accessoryId: accessory.id, name: accessory.name, price: 0, quantity: 1 },
+            ],
+          };
+        }
+        return {
+          ...line,
+          addOns: current.filter((a) => a.accessoryId !== accessory.id),
+        };
+      }),
+    );
+  }
+
+  function updateAddOnPrice(sku: string, accessoryId: number, price: number | null) {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.sku !== sku) return line;
+        return {
+          ...line,
+          addOns: (line.addOns ?? []).map((a) =>
+            a.accessoryId === accessoryId ? { ...a, price } : a,
+          ),
+        };
+      }),
+    );
+  }
+
+  function updateAddOnQuantity(
+    sku: string,
+    accessoryId: number,
+    quantity: number | null,
+  ) {
+    const safeQty = quantity && quantity > 0 ? Math.floor(quantity) : 1;
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.sku !== sku) return line;
+        return {
+          ...line,
+          addOns: (line.addOns ?? []).map((a) =>
+            a.accessoryId === accessoryId ? { ...a, quantity: safeQty } : a,
+          ),
+        };
+      }),
+    );
+  }
 
   useEffect(() => {
     if (!lines.length) return;
@@ -195,7 +303,12 @@ export default function PosPage() {
       const discount = line.discount ?? 0;
       const qty = line.quantity ?? 0;
       const effective = price * (1 - discount / 100);
-      return sum + effective * qty;
+      const addOnTotal = (line.addOns ?? []).reduce(
+        (acc, addOn) => acc + (addOn.price ?? 0) * (addOn.quantity ?? 1),
+        0,
+      );
+      const addOnEffective = qty > 0 ? addOnTotal : 0;
+      return sum + effective * qty + addOnEffective;
     }, 0);
   }, [lines]);
 
@@ -283,6 +396,9 @@ export default function PosPage() {
     currentChannel: "B2B" | "B2C",
     fallback: number | null,
   ) {
+    if (fallback !== null && fallback !== undefined) {
+      return fallback;
+    }
     const key = `${sku}:${currentChannel}`;
     if (quoteCache.current.has(key)) {
       return quoteCache.current.get(key) ?? fallback;
@@ -344,22 +460,84 @@ export default function PosPage() {
       setStatus("Introduce al menos una cantidad");
       return;
     }
-    const payload = {
-      warehouseId: fromId,
-      channel,
-      customerId: selectedCustomer?.id,
-      paymentMethod: giftSale ? "Regalo" : paymentMethod,
-      date: saleDate,
-      giftSale,
-      lines: saleLines.map((line) => ({
+    const isB2B = selectedCustomer?.type === "b2b";
+    const depositEnabled = b2bDeposit && isB2B;
+    if (!selectedCustomer && b2bDeposit) {
+      setB2bDeposit(false);
+    }
+      const payload = {
+        warehouseId: fromId,
+        channel: isB2B ? "B2B" : "B2C",
+        customerId: selectedCustomer?.id,
+        paymentMethod: giftSale ? "Regalo" : depositEnabled ? "Deposito" : paymentMethod,
+        paymentStatus,
+        paidAmount:
+          paymentStatus === "partial" && paidAmount.trim()
+            ? Number(paidAmount)
+            : undefined,
+        notes: depositEnabled ? "DEPOSITO" : undefined,
+        date: saleDate,
+        giftSale,
+        lines: saleLines.map((line) => ({
         sku: line.sku,
         quantity: line.quantity ?? 0,
         unitPrice: (line.unitPrice ?? 0) * (1 - (line.discount ?? 0) / 100),
+        addOns: (line.addOns ?? []).map((addOn) => ({
+          accessoryId: addOn.accessoryId,
+          price: addOn.price ?? 0,
+          quantity: addOn.quantity ?? 1,
+        })),
       })),
     };
     let created: { id: number } | null = null;
-    try {
-      created = await api.post<{ id: number }>("/pos/sale", payload);
+      try {
+        if (depositEnabled) {
+          if (!selectedCustomer) {
+            setStatus("Selecciona un cliente para deposito.");
+            return;
+          }
+          const match = retails.find(
+            (retail) =>
+              retail.name.trim().toLowerCase() ===
+              selectedCustomer.name.trim().toLowerCase(),
+          );
+          let targetId = match?.id;
+          if (!targetId) {
+            const createdRetail = await api.post<{ id: number }>("/locations", {
+              type: "retail",
+              name: selectedCustomer.name,
+              city: selectedCustomer.city ?? "",
+              active: true,
+            });
+            targetId = createdRetail.id;
+            setRetails((prev) => [
+              ...prev,
+              {
+                id: createdRetail.id,
+                type: "retail",
+                name: selectedCustomer.name,
+                city: selectedCustomer.city ?? "",
+                active: true,
+              },
+            ]);
+          }
+          const transfer = await api.post<{ id: number }>("/moves/transfer", {
+            fromId,
+            toId: targetId,
+            reference: payload.reference,
+            notes: `DEPOSITO${selectedCustomer ? ` | ${selectedCustomer.name}` : ""}`,
+            customerId: selectedCustomer?.id,
+            lines: saleLines.map((line) => ({
+              sku: line.sku,
+              quantity: line.quantity ?? 0,
+            })),
+          });
+        created = transfer;
+        setLastReportId(transfer.id);
+        setLastReportLabel("Deposito");
+      } else {
+        created = await api.post<{ id: number }>("/pos/sale", payload);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const insufficient =
@@ -367,9 +545,13 @@ export default function PosPage() {
         message.includes("No hay stock");
       if (insufficient) {
         const ok = window.confirm(
-          "No hay stock suficiente. Â¿Quieres continuar y dejar stock negativo?",
+          "No hay stock suficiente. Quieres continuar y dejar stock negativo?",
         );
         if (ok) {
+          if (b2bDeposit) {
+            setStatus("No hay stock suficiente para deposito.");
+            return;
+          }
           created = await api.post<{ id: number }>("/pos/sale", {
             ...payload,
             allowNegativeStock: true,
@@ -386,7 +568,7 @@ export default function PosPage() {
     setToast("Venta finalizada");
     setTimeout(() => setToast(null), 3000);
     setGiftSale(false);
-    if (created?.id) {
+    if (created?.id && !b2bDeposit) {
       setLastReportId(created.id);
       setLastReportLabel("Venta");
     }
@@ -417,6 +599,10 @@ export default function PosPage() {
       setStatus("Selecciona un pedido para devolver");
       return;
     }
+    if (!returnWarehouseId) {
+      setStatus("Selecciona un almacen para la devolucion");
+      return;
+    }
 
     const payloadLines = returnLines
       .filter((line) => (line.quantity ?? 0) > 0)
@@ -429,6 +615,7 @@ export default function PosPage() {
 
     const created = await api.post<{ id: number }>("/pos/return", {
       saleId: returnOrderId,
+      warehouseId: returnWarehouseId,
       date: returnDate,
       lines: payloadLines,
     });
@@ -439,6 +626,25 @@ export default function PosPage() {
     if (created?.id) {
       setLastReportId(created.id);
       setLastReportLabel("Devolucion");
+    }
+  }
+
+  async function downloadLastReport(type: "ticket" | "invoice" | "delivery") {
+    if (!lastReportId) return;
+    try {
+      setStatus(null);
+      const blob = await api.download(`/reports/moves/${lastReportId}/${type}`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const fileLabel = type === "delivery" ? "albaran" : type;
+      link.download = `${fileLabel}-${lastReportId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setStatus(err.message ?? String(err));
     }
   }
 
@@ -533,14 +739,21 @@ export default function PosPage() {
           <div className="row">
             <label className="stack">
               <span className="muted">Almacen</span>
-              <input
+              <select
                 className="input"
-                value={
-                  warehouses.find((w) => w.id === returnWarehouseId)?.name ??
-                  "-"
-                }
-                readOnly
-              />
+                value={returnWarehouseId ?? ""}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  setReturnWarehouseId(Number.isNaN(id) ? null : id);
+                }}
+              >
+                <option value="">Selecciona un almacen</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="stack">
               <span className="muted">Fecha devolucion</span>
@@ -614,22 +827,31 @@ export default function PosPage() {
           </div>
           {lastReportId && lastReportLabel === "Devolucion" && (
             <div className="row">
-              <a
+              <button
                 className="secondary"
-                href={`${apiBase}/reports/moves/${lastReportId}/ticket`}
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                onClick={() => downloadLastReport("ticket")}
               >
                 Ver ticket
-              </a>
-              <a
+              </button>
+              <button
                 className="secondary"
-                href={`${apiBase}/reports/moves/${lastReportId}/invoice`}
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                onClick={() => downloadLastReport("invoice")}
               >
                 Ver factura
-              </a>
+              </button>
+            </div>
+          )}
+          {lastReportId && lastReportLabel === "Deposito" && (
+            <div className="row">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => downloadLastReport("delivery")}
+              >
+                Ver albaran
+              </button>
             </div>
           )}
           {status && <p className="inline-error">{status}</p>}
@@ -688,6 +910,36 @@ export default function PosPage() {
               )}
               {mode === "sale" && (
                 <label className="stack">
+                  <span className="muted">Estado pago</span>
+                  <select
+                    className="input"
+                    value={paymentStatus}
+                    onChange={(e) =>
+                      setPaymentStatus(e.target.value as "paid" | "pending" | "partial")
+                    }
+                    disabled={giftSale}
+                  >
+                    <option value="paid">Pagado</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="partial">Parcial</option>
+                  </select>
+                </label>
+              )}
+              {mode === "sale" && paymentStatus === "partial" && (
+                <label className="stack">
+                  <span className="muted">Pagado</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                  />
+                </label>
+              )}
+              {mode === "sale" && (
+                <label className="stack">
                   <span className="muted">Regalo</span>
                   <div className="row">
                     <input
@@ -699,6 +951,20 @@ export default function PosPage() {
                   </div>
                 </label>
               )}
+              {mode === "sale" && channel === "B2B" && (
+                <label className="stack">
+                  <span className="muted">Deposito</span>
+                  <div className="row">
+                    <input
+                      type="checkbox"
+                      checked={b2bDeposit}
+                      onChange={(e) => setB2bDeposit(e.target.checked)}
+                    />
+                    <span className="muted">Marcar en deposito</span>
+                  </div>
+                </label>
+              )}
+              {mode === "sale" && channel === "B2B" && b2bDeposit && null}
               {mode === "transfer" && (
                 <label className="stack">
                   <span className="muted">Destino</span>
@@ -874,45 +1140,30 @@ export default function PosPage() {
                 const price = line.unitPrice ?? 0;
                 const discount = line.discount ?? 0;
                 const qty = line.quantity ?? 0;
-                const subtotal = price * (1 - discount / 100) * qty;
+                const addOnTotal = (line.addOns ?? []).reduce(
+                  (sum, addOn) => sum + (addOn.price ?? 0) * (addOn.quantity ?? 1),
+                  0,
+                );
+                const addOnEffective = qty > 0 ? addOnTotal : 0;
+                const subtotal =
+                  price * (1 - discount / 100) * qty + addOnEffective;
                 return (
-                  <div key={line.sku} className={`line-grid ${mode}`}>
-                    <div>{line.sku}</div>
-                    <div>{line.name}</div>
-                    <div className="qty-controls">
-                      <input
-                        className="input input-compact"
-                        type="number"
-                        value={line.quantity ?? ""}
-                        onChange={(e) =>
-                          setLines((prev) =>
-                            prev.map((l) =>
-                              l.sku === line.sku
-                                ? {
-                                    ...l,
-                                    quantity: parseNumberInput(e.target.value),
-                                  }
-                                : l,
-                            ),
-                          )
-                        }
-                      />
-                    </div>
-                    {mode === "sale" && (
-                      <div>
+                  <div key={line.sku}>
+                    <div className={`line-grid ${mode}`}>
+                      <div className="line-sku">{line.sku}</div>
+                      <div className="line-name">{line.name}</div>
+                      <div className="qty-controls">
                         <input
                           className="input input-compact"
                           type="number"
-                          value={line.unitPrice ?? ""}
+                          value={line.quantity ?? ""}
                           onChange={(e) =>
                             setLines((prev) =>
                               prev.map((l) =>
                                 l.sku === line.sku
                                   ? {
                                       ...l,
-                                      unitPrice: parseNumberInput(
-                                        e.target.value,
-                                      ),
+                                      quantity: parseNumberInput(e.target.value),
                                     }
                                   : l,
                               ),
@@ -920,45 +1171,89 @@ export default function PosPage() {
                           }
                         />
                       </div>
-                    )}
-                    {mode === "sale" && (
-                      <div>
-                        <input
-                          className="input input-compact"
-                          type="number"
-                          value={line.discount ?? ""}
-                          onChange={(e) =>
+                      {mode === "sale" && (
+                        <div>
+                          <input
+                            className="input input-compact"
+                            type="number"
+                            value={line.unitPrice ?? ""}
+                            onChange={(e) =>
+                              setLines((prev) =>
+                                prev.map((l) =>
+                                  l.sku === line.sku
+                                    ? {
+                                        ...l,
+                                        unitPrice: parseNumberInput(
+                                          e.target.value,
+                                        ),
+                                      }
+                                    : l,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                      )}
+                      {mode === "sale" && (
+                        <div>
+                          <input
+                            className="input input-compact"
+                            type="number"
+                            value={line.discount ?? ""}
+                            onChange={(e) =>
+                              setLines((prev) =>
+                                prev.map((l) =>
+                                  l.sku === line.sku
+                                    ? {
+                                        ...l,
+                                        discount: parseNumberInput(
+                                          e.target.value,
+                                        ),
+                                      }
+                                    : l,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                      )}
+                      <div className="line-subtotal">
+                        {mode === "sale" ? subtotal.toFixed(2) : "-"}
+                      </div>
+                      <div className="line-actions">
+                        <button
+                          className="icon-button"
+                          onClick={() =>
                             setLines((prev) =>
-                              prev.map((l) =>
-                                l.sku === line.sku
-                                  ? {
-                                      ...l,
-                                      discount: parseNumberInput(
-                                        e.target.value,
-                                      ),
-                                    }
-                                  : l,
-                              ),
+                              prev.filter((l) => l.sku !== line.sku),
                             )
                           }
-                        />
+                        >
+                          X
+                        </button>
+                      </div>
+                    </div>
+                    {mode === "sale" && (
+                      <div className="line-addons-row">
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => setEditingAddOnsSku(line.sku)}
+                        >
+                          Accesorios
+                        </button>
+                        {line.addOns && line.addOns.length > 0 && (
+                          <div className="addon-tags">
+                            {line.addOns.map((item) => (
+                              <span key={item.accessoryId} className="chip">
+                                {item.name} x{item.quantity ?? 1}
+                                {item.price !== null ? ` (EUR ${item.price})` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
-                    <div className="line-subtotal">
-                      {mode === "sale" ? subtotal.toFixed(2) : "-"}
-                    </div>
-                    <div>
-                      <button
-                        className="icon-button"
-                        onClick={() =>
-                          setLines((prev) =>
-                            prev.filter((l) => l.sku !== line.sku),
-                          )
-                        }
-                      >
-                        X
-                      </button>
-                    </div>
                   </div>
                 );
               })}
@@ -977,22 +1272,20 @@ export default function PosPage() {
               </div>
               {lastReportId && lastReportLabel === "Venta" && (
                 <div className="row">
-                  <a
+                  <button
                     className="secondary"
-                    href={`${apiBase}/reports/moves/${lastReportId}/ticket`}
-                    target="_blank"
-                    rel="noreferrer"
+                    type="button"
+                    onClick={() => downloadLastReport("ticket")}
                   >
                     Ver ticket
-                  </a>
-                  <a
+                  </button>
+                  <button
                     className="secondary"
-                    href={`${apiBase}/reports/moves/${lastReportId}/invoice`}
-                    target="_blank"
-                    rel="noreferrer"
+                    type="button"
+                    onClick={() => downloadLastReport("invoice")}
                   >
                     Ver factura
-                  </a>
+                  </button>
                 </div>
               )}
               {status && <p className="inline-error">{status}</p>}
@@ -1026,6 +1319,101 @@ export default function PosPage() {
 
       {toast && <div className="toast">{toast}</div>}
       {addToast && <div className="toast toast-compact">{addToast}</div>}
+
+      {editingAddOnsSku && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setEditingAddOnsSku(null)}
+        >
+          <div
+            className="card stack modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <strong>Accesorios</strong>
+            <div className="muted">
+              Linea: {editingAddOnsSku}
+            </div>
+            <div className="stack">
+              {accessories.length === 0 && (
+                <p className="muted">No hay accesorios activos.</p>
+              )}
+              {accessories.length > 0 && (
+                <div
+                  className="muted"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 120px 120px",
+                    gap: "12px",
+                    alignItems: "center",
+                  }}
+                >
+                  <span>Accesorio</span>
+                  <span>Precio</span>
+                  <span>Cantidad</span>
+                </div>
+              )}
+              {accessories.map((acc) => {
+                const line = lines.find((l) => l.sku === editingAddOnsSku);
+                const existing =
+                  line?.addOns?.find((a) => a.accessoryId === acc.id) ?? null;
+                return (
+                  <div
+                    key={acc.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 120px 120px",
+                      gap: "12px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <label className="row" style={{ gap: "8px" }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(existing)}
+                        onChange={(e) =>
+                          toggleAddOn(editingAddOnsSku, acc, e.target.checked)
+                        }
+                      />
+                      {acc.name}
+                    </label>
+                    <input
+                      className="input input-compact"
+                      type="number"
+                      placeholder="0"
+                      value={existing?.price ?? 0}
+                      onChange={(e) =>
+                        updateAddOnPrice(
+                          editingAddOnsSku,
+                          acc.id,
+                          parseNumberInput(e.target.value) ?? 0,
+                        )
+                      }
+                      disabled={!existing}
+                    />
+                    <input
+                      className="input input-compact"
+                      type="number"
+                      placeholder="1"
+                      value={existing?.quantity ?? 1}
+                      onChange={(e) =>
+                        updateAddOnQuantity(
+                          editingAddOnsSku,
+                          acc.id,
+                          parseNumberInput(e.target.value) ?? 1,
+                        )
+                      }
+                      disabled={!existing}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="row">
+              <button onClick={() => setEditingAddOnsSku(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {status && <p className="muted">{status}</p>}
     </div>

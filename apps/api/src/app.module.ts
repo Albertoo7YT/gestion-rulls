@@ -6,6 +6,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
+import { PermissionsGuard } from "./auth/permissions.guard";
 import { SettingsModule } from "./settings/settings.module";
 import { LocationsModule } from "./locations/locations.module";
 import { ProductsModule } from "./products/products.module";
@@ -30,6 +31,10 @@ import { UsersModule } from "./users/users.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { SuggestionsModule } from "./suggestions/suggestions.module";
 import { CatalogModule } from "./catalog/catalog.module";
+import { CrmModule } from "./crm/crm.module";
+import { DepositsModule } from "./deposits.module";
+import { DocumentSeriesController } from "./common/document-series.controller";
+import { DocumentSeriesService } from "./common/document-series.service";
 
 @Module({
   imports: [
@@ -59,9 +64,12 @@ import { CatalogModule } from "./catalog/catalog.module";
     PricingModule,
     SuggestionsModule,
     CatalogModule,
+    CrmModule,
+    DepositsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, DocumentSeriesController],
   providers: [
+    DocumentSeriesService,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -69,6 +77,10 @@ import { CatalogModule } from "./catalog/catalog.module";
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_INTERCEPTOR,

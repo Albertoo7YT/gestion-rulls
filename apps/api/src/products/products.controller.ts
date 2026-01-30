@@ -7,9 +7,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UsePipes,
   ValidationPipe,
 } from "@nestjs/common";
+import { Request } from "express";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { CreateQuickProductDto } from "./dto/create-quick-product.dto";
 import { ConvertToStandardDto } from "./dto/convert-to-standard.dto";
@@ -34,13 +36,13 @@ export class ProductsController {
   }
 
   @Post()
-  createStandard(@Body() body: CreateProductDto) {
-    return this.productsService.createStandard(body);
+  createStandard(@Body() body: CreateProductDto, @Req() req: Request & { user?: any }) {
+    return this.productsService.createStandard(body, req.user?.id);
   }
 
   @Post("quick")
-  createQuick(@Body() body: CreateQuickProductDto) {
-    return this.productsService.createQuick(body);
+  createQuick(@Body() body: CreateQuickProductDto, @Req() req: Request & { user?: any }) {
+    return this.productsService.createQuick(body, req.user?.id);
   }
 
   @Get(":sku/moves")
@@ -54,8 +56,12 @@ export class ProductsController {
   }
 
   @Put(":sku")
-  update(@Param("sku") sku: string, @Body() body: UpdateProductDto) {
-    return this.productsService.update(sku, body);
+  update(
+    @Param("sku") sku: string,
+    @Body() body: UpdateProductDto,
+    @Req() req: Request & { user?: any },
+  ) {
+    return this.productsService.update(sku, body, req.user?.id);
   }
 
   @Delete(":sku")
@@ -64,7 +70,11 @@ export class ProductsController {
   }
 
   @Post(":sku/convert-to-standard")
-  convertToStandard(@Param("sku") sku: string, @Body() body: ConvertToStandardDto) {
-    return this.productsService.convertToStandard(sku, body);
+  convertToStandard(
+    @Param("sku") sku: string,
+    @Body() body: ConvertToStandardDto,
+    @Req() req: Request & { user?: any },
+  ) {
+    return this.productsService.convertToStandard(sku, body, req.user?.id);
   }
 }

@@ -8,9 +8,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UsePipes,
   ValidationPipe,
 } from "@nestjs/common";
+import { Request } from "express";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { ListCustomersQueryDto } from "./dto/list-customers-query.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
@@ -33,17 +35,21 @@ export class CustomersController {
   }
 
   @Post()
-  create(@Body() body: CreateCustomerDto) {
-    return this.customersService.create(body);
+  create(@Body() body: CreateCustomerDto, @Req() req: Request & { user?: any }) {
+    return this.customersService.create(body, req.user?.id);
   }
 
   @Put(":id")
-  update(@Param("id", ParseIntPipe) id: number, @Body() body: UpdateCustomerDto) {
-    return this.customersService.update(id, body);
+  update(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() body: UpdateCustomerDto,
+    @Req() req: Request & { user?: any },
+  ) {
+    return this.customersService.update(id, body, req.user?.id);
   }
 
   @Delete(":id")
-  remove(@Param("id", ParseIntPipe) id: number) {
-    return this.customersService.remove(id);
+  remove(@Param("id", ParseIntPipe) id: number, @Req() req: Request & { user?: any }) {
+    return this.customersService.remove(id, req.user?.id);
   }
 }

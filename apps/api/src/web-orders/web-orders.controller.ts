@@ -9,6 +9,7 @@ import {
   ValidationPipe,
 } from "@nestjs/common";
 import { AssignWarehouseDto } from "./dto/assign-warehouse.dto";
+import { ProcessWebOrderDto } from "./dto/process-web-order.dto";
 import { WebOrdersService } from "./web-orders.service";
 
 @Controller("web-orders")
@@ -27,6 +28,11 @@ export class WebOrdersController {
     return this.webOrdersService.listOrders();
   }
 
+  @Get(":wooOrderId")
+  getOne(@Param("wooOrderId") wooOrderId: string) {
+    return this.webOrdersService.getOrder(wooOrderId);
+  }
+
   @Post(":wooOrderId/assign-warehouse")
   assignWarehouse(
     @Param("wooOrderId") wooOrderId: string,
@@ -36,8 +42,11 @@ export class WebOrdersController {
   }
 
   @Post(":wooOrderId/process")
-  process(@Param("wooOrderId") wooOrderId: string) {
-    return this.webOrdersService.processOrder(wooOrderId);
+  process(
+    @Param("wooOrderId") wooOrderId: string,
+    @Body() body: ProcessWebOrderDto,
+  ) {
+    return this.webOrdersService.processOrder(wooOrderId, body);
   }
 
   @Post(":wooOrderId/mark-completed")
@@ -48,5 +57,10 @@ export class WebOrdersController {
   @Delete(":wooOrderId")
   remove(@Param("wooOrderId") wooOrderId: string) {
     return this.webOrdersService.removeOrder(wooOrderId);
+  }
+
+  @Post("reconcile")
+  reconcile() {
+    return this.webOrdersService.reconcileProcessedOrders();
   }
 }

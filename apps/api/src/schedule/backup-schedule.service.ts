@@ -16,4 +16,20 @@ export class BackupScheduleService {
       this.logger.error("Daily backup failed", err as Error);
     }
   }
+
+  @Cron("0 0 4 * * 0", { timeZone: "Europe/Madrid" })
+  async handleWeeklyRestoreTest() {
+    try {
+      const result = await this.backupService.verifyLatestBackup();
+      if (!result) {
+        this.logger.warn("Weekly restore test skipped: no backups found");
+        return;
+      }
+      if (!result.verified) {
+        this.logger.error(`Weekly restore test failed: ${result.name}`);
+      }
+    } catch (err) {
+      this.logger.error("Weekly restore test failed", err as Error);
+    }
+  }
 }

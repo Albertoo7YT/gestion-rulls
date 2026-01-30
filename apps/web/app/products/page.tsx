@@ -16,6 +16,7 @@ type Product = {
   manufacturerRef?: string | null;
   color?: string | null;
   cost: number | null;
+  engravingCost?: number | null;
   rrp: number | null;
   b2bPrice?: number | null;
   active: boolean;
@@ -25,11 +26,19 @@ type Product = {
 };
 
 type Category = { id: number; name: string };
+type Accessory = {
+  id: number;
+  name: string;
+  cost: number | null;
+  price: number | null;
+  active: boolean;
+};
 
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accessories, setAccessories] = useState<Accessory[]>([]);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("name-asc");
   const [quickForm, setQuickForm] = useState({
@@ -42,6 +51,7 @@ export default function ProductsPage() {
     manufacturerRef: "",
     color: "",
     cost: "",
+    engravingCost: "",
     rrp: "",
   });
   const [standardForm, setStandardForm] = useState({
@@ -54,6 +64,7 @@ export default function ProductsPage() {
     manufacturerRef: "",
     color: "",
     cost: "",
+    engravingCost: "",
     rrp: "",
     b2bPrice: "",
     active: true,
@@ -62,11 +73,21 @@ export default function ProductsPage() {
   const [showStandardForm, setShowStandardForm] = useState(false);
   const [showQuickForm, setShowQuickForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showAccessoryForm, setShowAccessoryForm] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [editingLoading, setEditingLoading] = useState(false);
+  const [editingSaving, setEditingSaving] = useState(false);
+  const [editingAccessory, setEditingAccessory] = useState<Accessory | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
   const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(false);
+  const [accessoryForm, setAccessoryForm] = useState({
+    name: "",
+    cost: "",
+    price: "",
+    active: true,
+  });
 
   const filtered = useMemo(() => {
     const scored = filterAndScoreSkus(products, search);
@@ -162,8 +183,13 @@ export default function ProductsPage() {
     setCategories(data);
   }
 
+  async function loadAccessories() {
+    const data = await api.get<Accessory[]>("/accessories");
+    setAccessories(data);
+  }
+
   useEffect(() => {
-    Promise.all([loadProducts(), loadCategories()]).catch((err) =>
+    Promise.all([loadProducts(), loadCategories(), loadAccessories()]).catch((err) =>
       setStatus(err.message),
     );
   }, []);
@@ -186,6 +212,7 @@ export default function ProductsPage() {
       manufacturerRef: quickForm.manufacturerRef.trim() || undefined,
       color: quickForm.color.trim() || undefined,
       cost: toNumberOrUndefined(quickForm.cost),
+      engravingCost: toNumberOrUndefined(quickForm.engravingCost),
       rrp: toNumberOrUndefined(quickForm.rrp),
     });
     setQuickForm({
@@ -198,6 +225,7 @@ export default function ProductsPage() {
       manufacturerRef: "",
       color: "",
       cost: "",
+      engravingCost: "",
       rrp: "",
     });
     await loadProducts();
@@ -220,6 +248,7 @@ export default function ProductsPage() {
       manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
       color: standardForm.color.trim() || undefined,
       cost: toNumberOrUndefined(standardForm.cost),
+      engravingCost: toNumberOrUndefined(standardForm.engravingCost),
       rrp: toNumberOrUndefined(standardForm.rrp),
       b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
       active: standardForm.active,
@@ -235,12 +264,66 @@ export default function ProductsPage() {
       manufacturerRef: "",
       color: "",
       cost: "",
+      engravingCost: "",
       rrp: "",
       b2bPrice: "",
       active: true,
       categoryIds: [],
     });
     await loadProducts();
+  }
+
+  function startAccessoryCreate() {
+    setEditingAccessory(null);
+    setAccessoryForm({ name: "", cost: "", price: "", active: true });
+    setShowAccessoryForm(true);
+  }
+
+  function startAccessoryEdit(accessory: Accessory) {
+    setEditingAccessory(accessory);
+    setAccessoryForm({
+      name: accessory.name,
+      cost: accessory.cost !== null ? String(accessory.cost) : "",
+      price: accessory.price !== null ? String(accessory.price) : "",
+      active: accessory.active,
+    });
+    setShowAccessoryForm(true);
+  }
+
+  function cancelAccessoryEdit() {
+    setEditingAccessory(null);
+    setAccessoryForm({ name: "", cost: "", price: "", active: true });
+    setShowAccessoryForm(false);
+  }
+
+  async function saveAccessory() {
+    const name = accessoryForm.name.trim();
+    if (!name) return;
+    const payload = {
+      name,
+      cost: toNumberOrUndefined(accessoryForm.cost),
+      price: toNumberOrUndefined(accessoryForm.price),
+      active: accessoryForm.active,
+    };
+    if (editingAccessory) {
+      await api.put(`/accessories/${editingAccessory.id}`, payload);
+    } else {
+      await api.post("/accessories", payload);
+    }
+    cancelAccessoryEdit();
+    await loadAccessories();
+  }
+
+  async function toggleAccessoryActive(accessory: Accessory, active: boolean) {
+    await api.put(`/accessories/${accessory.id}`, { active });
+    await loadAccessories();
+  }
+
+  async function removeAccessory(accessory: Accessory) {
+    const ok = window.confirm(`Eliminar accesorio "${accessory.name}"?`);
+    if (!ok) return;
+    await api.del(`/accessories/${accessory.id}`);
+    await loadAccessories();
   }
 
   function toNumberOrUndefined(value: string | number | null) {
@@ -268,6 +351,7 @@ export default function ProductsPage() {
       manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
       color: standardForm.color.trim() || undefined,
       cost: toNumberOrUndefined(standardForm.cost),
+      engravingCost: toNumberOrUndefined(standardForm.engravingCost),
       rrp: toNumberOrUndefined(standardForm.rrp),
       b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
       active: standardForm.active,
@@ -283,6 +367,7 @@ export default function ProductsPage() {
       manufacturerRef: "",
       color: "",
       cost: "",
+      engravingCost: "",
       rrp: "",
       b2bPrice: "",
       active: true,
@@ -331,6 +416,7 @@ export default function ProductsPage() {
         manufacturerRef: row.manufacturerRef?.trim() || undefined,
         color: row.color?.trim() || undefined,
         cost: row.cost ? Number(row.cost) : undefined,
+        engravingCost: row.engravingCost ? Number(row.engravingCost) : undefined,
         rrp: row.rrp ? Number(row.rrp) : undefined,
         b2bPrice: row.b2bPrice ? Number(row.b2bPrice) : undefined,
         active: row.active ? row.active !== "false" : true,
@@ -407,35 +493,68 @@ export default function ProductsPage() {
 
   async function saveEdit() {
     if (!editing) return;
+    if (!editing.sku) {
+      setStatus("SKU invalido. Cierra y vuelve a abrir la edicion.");
+      return;
+    }
     setStatus(null);
-    const extraPhotos = Array.isArray(editing.photoUrls)
-      ? editing.photoUrls
-      : parsePhotoUrls(String(editing.photoUrls || ""));
-    await api.put(`/products/${editing.sku}`, {
-      name: editing.name,
-      photoUrl: editing.photoUrl || extraPhotos[0] || undefined,
-      photoUrls: extraPhotos.length ? extraPhotos : undefined,
-      description: editing.description || undefined,
-      manufacturerRef: editing.manufacturerRef || undefined,
-      color: editing.color || undefined,
-      cost: toNumberOrUndefined(editing.cost),
-      rrp: toNumberOrUndefined(editing.rrp),
-      b2bPrice: toNumberOrUndefined(editing.b2bPrice ?? null),
-      active: editing.active,
-      categoryIds: editing.categoryIds,
-    });
-    setEditing(null);
-    await loadProducts();
+    setEditingSaving(true);
+    try {
+      const extraPhotos = Array.isArray(editing.photoUrls)
+        ? editing.photoUrls
+        : parsePhotoUrls(String(editing.photoUrls || ""));
+      const encodedSku = encodeURIComponent(editing.sku);
+      await api.put(`/products/${encodedSku}`, {
+        name: editing.name,
+        photoUrl: editing.photoUrl || extraPhotos[0] || undefined,
+        photoUrls: extraPhotos.length ? extraPhotos : undefined,
+        description: editing.description || undefined,
+        manufacturerRef: editing.manufacturerRef || undefined,
+        color: editing.color || undefined,
+        cost: toNumberOrUndefined(editing.cost),
+        engravingCost: toNumberOrUndefined(editing.engravingCost ?? null),
+        rrp: toNumberOrUndefined(editing.rrp),
+        b2bPrice: toNumberOrUndefined(editing.b2bPrice ?? null),
+        active: editing.active,
+        categoryIds: editing.categoryIds,
+      });
+      setEditing(null);
+      await loadProducts();
+    } catch (err: any) {
+      setStatus(err.message ?? String(err));
+    } finally {
+      setEditingSaving(false);
+    }
   }
 
   async function startEdit(sku: string) {
     setStatus(null);
+    if (!sku) return;
     const existing = products.find((p) => p.sku === sku);
     if (existing) {
       setEditing(normalizeProduct(existing));
     }
-    const detail = await api.get<Product>(`/products/${sku}`);
-    setEditing(normalizeProduct(detail));
+    setEditingLoading(true);
+    try {
+      const detail = await api.get<Product>(`/products/${encodeURIComponent(sku)}`);
+      const normalized = normalizeProduct(detail);
+      if (existing) {
+        setEditing({
+          ...normalizeProduct(existing),
+          ...normalized,
+          categoryIds: normalized.categoryIds ?? existing.categoryIds,
+          categoryNames: normalized.categoryNames ?? existing.categoryNames,
+          photoUrls:
+            normalized.photoUrls?.length ? normalized.photoUrls : existing.photoUrls,
+        });
+      } else {
+        setEditing(normalized);
+      }
+    } catch (err: any) {
+      setStatus(err.message ?? String(err));
+    } finally {
+      setEditingLoading(false);
+    }
   }
 
   async function handlePhotoFile(file: File) {
@@ -579,6 +698,21 @@ export default function ProductsPage() {
               value={standardForm.cost}
               onChange={(e) =>
                 setStandardForm({ ...standardForm, cost: e.target.value })
+              }
+            />
+          </label>
+          <label className="stack">
+            <span className="muted">Coste grabado</span>
+            <input
+              className="input"
+              type="number"
+              placeholder="Coste grabado"
+              value={standardForm.engravingCost}
+              onChange={(e) =>
+                setStandardForm({
+                  ...standardForm,
+                  engravingCost: e.target.value,
+                })
               }
             />
           </label>
@@ -752,6 +886,21 @@ export default function ProductsPage() {
             />
           </label>
           <label className="stack">
+            <span className="muted">Coste grabado</span>
+            <input
+              className="input"
+              type="number"
+              placeholder="Coste grabado"
+              value={quickForm.engravingCost}
+              onChange={(e) =>
+                setQuickForm({
+                  ...quickForm,
+                  engravingCost: e.target.value,
+                })
+              }
+            />
+          </label>
+          <label className="stack">
             <span className="muted">PVP</span>
             <input
               className="input"
@@ -790,6 +939,7 @@ export default function ProductsPage() {
               { key: "manufacturerRef", label: "Ref fabricante" },
               { key: "color", label: "Color" },
               { key: "cost", label: "Coste" },
+              { key: "engravingCost", label: "Coste grabado" },
               { key: "rrp", label: "PVP" },
               { key: "b2bPrice", label: "Precio B2B" },
               { key: "active", label: "Activo" },
@@ -943,6 +1093,7 @@ export default function ProductsPage() {
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      setEditing(normalizeProduct(p));
                       startEdit(p.sku);
                     }}
                   >
@@ -956,7 +1107,8 @@ export default function ProductsPage() {
                         event.preventDefault();
                         event.stopPropagation();
                         setStatus(null);
-                        await api.post(`/products/${p.sku}/convert-to-standard`, {});
+                        const encodedSku = encodeURIComponent(p.sku);
+                        await api.post(`/products/${encodedSku}/convert-to-standard`, {});
                         await loadProducts();
                       }}
                     >
@@ -973,8 +1125,9 @@ export default function ProductsPage() {
                       );
                       if (!confirmDelete) return;
                       setStatus(null);
+                      const encodedSku = encodeURIComponent(p.sku);
                       api
-                        .del(`/products/${p.sku}?hard=true`)
+                        .del(`/products/${encodedSku}?hard=true`)
                         .then(loadProducts)
                         .catch((err) => setStatus(err.message));
                     }}
@@ -990,7 +1143,122 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {editing && (
+      <div className="card stack">
+        <div className="row">
+          <strong>Accesorios</strong>
+          <div className="row">
+            <button className="secondary" onClick={startAccessoryCreate}>
+              Nuevo accesorio
+            </button>
+            {showAccessoryForm && (
+              <button className="secondary" onClick={cancelAccessoryEdit}>
+                Cancelar
+              </button>
+            )}
+          </div>
+        </div>
+        {showAccessoryForm && (
+          <div className="row">
+            <label className="stack">
+              <span className="muted">Nombre</span>
+              <input
+                className="input"
+                placeholder="Nombre"
+                value={accessoryForm.name}
+                onChange={(e) =>
+                  setAccessoryForm({ ...accessoryForm, name: e.target.value })
+                }
+              />
+            </label>
+            <label className="stack">
+              <span className="muted">Coste</span>
+              <input
+                className="input"
+                type="number"
+                placeholder="Coste"
+                value={accessoryForm.cost}
+                onChange={(e) =>
+                  setAccessoryForm({ ...accessoryForm, cost: e.target.value })
+                }
+              />
+            </label>
+            <label className="stack">
+              <span className="muted">Precio sugerido</span>
+              <input
+                className="input"
+                type="number"
+                placeholder="Precio"
+                value={accessoryForm.price}
+                onChange={(e) =>
+                  setAccessoryForm({ ...accessoryForm, price: e.target.value })
+                }
+              />
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={accessoryForm.active}
+                onChange={(e) =>
+                  setAccessoryForm({ ...accessoryForm, active: e.target.checked })
+                }
+              />
+              Activo
+            </label>
+            <button onClick={saveAccessory}>
+              {editingAccessory ? "Guardar" : "Crear"}
+            </button>
+          </div>
+        )}
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Coste</th>
+              <th>Precio</th>
+              <th>Estado</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {accessories.map((acc) => (
+              <tr key={acc.id}>
+                <td>{acc.name}</td>
+                <td>{acc.cost ?? "-"}</td>
+                <td>{acc.price ?? "-"}</td>
+                <td>{acc.active ? "Activo" : "Inactivo"}</td>
+                <td className="row">
+                  <button className="secondary" onClick={() => startAccessoryEdit(acc)}>
+                    Editar
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => toggleAccessoryActive(acc, !acc.active)}
+                  >
+                    {acc.active ? "Desactivar" : "Activar"}
+                  </button>
+                  <button className="delete-button" onClick={() => removeAccessory(acc)}>
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {accessories.length === 0 && (
+              <tr>
+                <td colSpan={5} className="muted">
+                  Sin accesorios
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {editingLoading && (
+        <div className="card stack">
+          <strong>Cargando producto...</strong>
+        </div>
+      )}
+      {editing && !editingLoading && (
         <div className="modal-backdrop" onClick={() => setEditing(null)}>
           <div
             className="card stack modal-card"
@@ -1087,6 +1355,22 @@ export default function ProductsPage() {
               />
             </label>
             <label className="stack">
+              <span className="muted">Coste grabado</span>
+              <input
+                className="input"
+                type="number"
+                value={editing.engravingCost ?? ""}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    engravingCost:
+                      e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+                placeholder="Coste grabado"
+              />
+            </label>
+            <label className="stack">
               <span className="muted">PVP</span>
               <input
                 className="input"
@@ -1148,11 +1432,18 @@ export default function ProductsPage() {
             ))}
           </div>
           <div className="row">
-            <button onClick={saveEdit}>Guardar</button>
-            <button className="secondary" onClick={() => setEditing(null)}>
+            <button onClick={saveEdit} type="button" disabled={editingSaving}>
+              {editingSaving ? "Guardando..." : "Guardar"}
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setEditing(null)}
+            >
               Cancelar
             </button>
           </div>
+          {status && <p className="muted">{status}</p>}
           </div>
         </div>
       )}
@@ -1182,6 +1473,10 @@ function parseCsv(text: string): Record<string, string>[] {
 function normalizeProduct(product: Product): Product {
   const cost =
     product.cost === null ? null : Number(product.cost);
+  const engravingCost =
+    product.engravingCost === null || typeof product.engravingCost === "undefined"
+      ? null
+      : Number(product.engravingCost);
   const rrp =
     product.rrp === null ? null : Number(product.rrp);
   const b2bPrice =
@@ -1194,6 +1489,7 @@ function normalizeProduct(product: Product): Product {
   return {
     ...product,
     cost: Number.isFinite(cost) ? cost : null,
+    engravingCost: Number.isFinite(engravingCost) ? engravingCost : null,
     rrp: Number.isFinite(rrp) ? rrp : null,
     b2bPrice: Number.isFinite(b2bPrice) ? b2bPrice : null,
     photoUrls,

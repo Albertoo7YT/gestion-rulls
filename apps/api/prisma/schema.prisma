@@ -33,6 +33,12 @@ enum StockMoveChannel {
   B2C
 }
 
+enum PaymentStatus {
+  pending
+  partial
+  paid
+}
+
 enum PurchaseOrderStatus {
   draft
   ordered
@@ -58,6 +64,9 @@ enum PriceRuleType {
 
 enum UserRole {
   admin
+  commercial
+  store
+  warehouse
 }
 
 model Location {
@@ -83,28 +92,55 @@ model Location {
 }
 
 model Product {
-  sku      String      @id
-  name     String
-  type     ProductType
-  photoUrl String?
-  photoUrls Json?
-  description String?
-  manufacturerRef String?
-  color String?
-  cost     Decimal?    @db.Decimal(10, 2)
-  rrp      Decimal?    @db.Decimal(10, 2)
-  b2bPrice Decimal?    @db.Decimal(10, 2)
-  active   Boolean     @default(true)
-  supplierId Int?
-  moveLines StockMoveLine[]
-  webOrderLines WebOrderLine[]
-  categories ProductCategory[]
-  supplier  Supplier? @relation(fields: [supplierId], references: [id])
-}
+    sku      String      @id
+    name     String
+    type     ProductType
+    photoUrl String?
+    photoUrls Json?
+    description String?
+    manufacturerRef String?
+    color String?
+    cost     Decimal?    @db.Decimal(10, 2)
+    engravingCost Decimal? @db.Decimal(10, 2)
+    rrp      Decimal?    @db.Decimal(10, 2)
+    b2bPrice Decimal?    @db.Decimal(10, 2)
+    active   Boolean     @default(true)
+    supplierId Int?
+    moveLines StockMoveLine[]
+    webOrderLines WebOrderLine[]
+    categories ProductCategory[]
+    supplier  Supplier? @relation(fields: [supplierId], references: [id])
+  }
+
+  model Accessory {
+    id        Int      @id @default(autoincrement())
+    name      String
+    cost      Decimal? @db.Decimal(10, 2)
+    price     Decimal? @db.Decimal(10, 2)
+    active    Boolean  @default(true)
+    createdAt DateTime @default(now())
+  }
 
 model ProductCounter {
   id         Int @id
   nextNumber Int @default(1)
+}
+
+model DocumentSeries {
+  id         Int      @id @default(autoincrement())
+  code       String   @unique
+  name       String
+  scope      String
+  prefix     String?
+  year       Int?
+  nextNumber Int      @default(1)
+  padding    Int      @default(6)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([scope])
+  @@index([year])
 }
 
 model Settings {
@@ -117,6 +153,16 @@ model Settings {
   wooConsumerSecret   String?
   wooSyncProducts     Boolean  @default(false)
   wooSyncImages       Boolean  @default(false)
+  issuerName          String?
+  issuerTaxId         String?
+  issuerAddressLine1  String?
+  issuerAddressLine2  String?
+  issuerPostalCode    String?
+  issuerCity          String?
+  issuerProvince      String?
+  issuerCountry       String?
+  issuerEmail         String?
+  issuerPhone         String?
 }
 
 model PaymentMethod {
@@ -172,9 +218,17 @@ model User {
   passwordHash String
   role         UserRole @default(admin)
   active       Boolean  @default(true)
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   auditLogs    AuditLog[]
+  crmOwnedCards CrmCustomerCard[] @relation("CrmOwner")
+  crmTasks     CrmTask[] @relation("CrmTaskOwner")
+  crmEvents    CrmEvent[] @relation("CrmEventOwner")
+  crmNotes     CrmNote[] @relation("CrmNoteOwner")
+  crmOpportunities CrmOpportunity[] @relation("CrmOpportunityOwner")
+  crmNotifications CrmNotification[] @relation("CrmNotificationOwner")
 }
 
 model AuditLog {
@@ -214,12 +268,26 @@ model Customer {
   type      String
   name      String
   taxId     String?
+  addressLine1 String?
+  addressLine2 String?
+  postalCode String?
+  province  String?
+  city      String?
+  country   String?
   email     String?
   phone     String?
   notes     String?
   active    Boolean  @default(true)
   moves     StockMove[]
   createdAt DateTime @default(now())
+  crmCard   CrmCustomerCard?
+  crmNotes  CrmNote[]
+  crmTasks  CrmTask[]
+  crmEvents CrmEvent[]
+  crmOpportunities CrmOpportunity[]
+  crmNotifications CrmNotification[]
+  crmAutomationRuns CrmAutomationRun[]
+  webOrders WebOrder[]
 }
 
 model Category {
@@ -247,26 +315,36 @@ model StockMove {
   toId       Int?
   customerId Int?
   relatedMoveId Int?
+  seriesCode String?         @map("series_code")
+  seriesYear Int?            @map("series_year")
+  seriesNumber Int?          @map("series_number")
   reference  String?
   notes      String?
+  paymentStatus PaymentStatus @default(pending) @map("payment_status")
+  paidAmount Decimal         @default(0) @map("paid_amount") @db.Decimal(10, 2)
   from       Location?       @relation("MoveFrom", fields: [fromId], references: [id])
   to         Location?       @relation("MoveTo", fields: [toId], references: [id])
   customer   Customer?       @relation(fields: [customerId], references: [id])
   relatedMove StockMove?     @relation("RelatedMove", fields: [relatedMoveId], references: [id])
   relatedMoves StockMove[]   @relation("RelatedMove")
   lines      StockMoveLine[]
+
+  @@index([seriesCode, seriesYear, seriesNumber])
 }
 
-model StockMoveLine {
-  id        Int       @id @default(autoincrement())
-  moveId    Int
-  sku       String
-  quantity  Int
-  unitPrice Decimal?  @db.Decimal(10, 2)
-  unitCost  Decimal?  @db.Decimal(10, 2)
-  move      StockMove @relation(fields: [moveId], references: [id])
-  product   Product   @relation(fields: [sku], references: [sku])
-}
+  model StockMoveLine {
+    id        Int       @id @default(autoincrement())
+    moveId    Int
+    sku       String
+    quantity  Int
+    unitPrice Decimal?  @db.Decimal(10, 2)
+    unitCost  Decimal?  @db.Decimal(10, 2)
+    addOnCost Decimal?  @db.Decimal(10, 2)
+    addOnPrice Decimal? @db.Decimal(10, 2)
+    addOns    Json?
+    move      StockMove @relation(fields: [moveId], references: [id])
+    product   Product   @relation(fields: [sku], references: [sku])
+  }
 
 model WebOrder {
   wooOrderId          String   @id
@@ -278,10 +356,12 @@ model WebOrder {
   total               Decimal  @db.Decimal(10, 2)
   currency            String
   assignedWarehouseId Int?
+  customerId          Int?
   importedAt          DateTime
   processedAt         DateTime?
   notes               String?
   assignedWarehouse   Location? @relation(fields: [assignedWarehouseId], references: [id])
+  customer            Customer? @relation(fields: [customerId], references: [id])
   lines               WebOrderLine[]
 }
 
@@ -294,4 +374,222 @@ model WebOrderLine {
   lineTotal  Decimal @db.Decimal(10, 2)
   order      WebOrder @relation(fields: [wooOrderId], references: [wooOrderId])
   product    Product  @relation(fields: [sku], references: [sku])
+}
+
+model CrmCustomerStatus {
+  id        Int       @id @default(autoincrement())
+  phaseId   Int?      @map("phase_id")
+  name      String
+  sortOrder Int      @default(0) @map("order")
+  color     String?
+  rules     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  phase     CrmPhase? @relation(fields: [phaseId], references: [id])
+  cards     CrmCustomerCard[]
+
+  @@index([phaseId])
+  @@map("crm_customer_statuses")
+}
+
+model CrmCustomerCard {
+  id         Int       @id @default(autoincrement())
+  customerId Int       @unique @map("customer_id")
+  phaseId    Int?      @map("phase_id")
+  statusId   Int?     @map("status_id")
+  ownerId    Int?     @map("owner_id")
+  priority   Int      @default(0)
+  tags       String[] @default([])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id])
+  phase      CrmPhase? @relation(fields: [phaseId], references: [id])
+  status     CrmCustomerStatus? @relation(fields: [statusId], references: [id])
+  owner      User?    @relation("CrmOwner", fields: [ownerId], references: [id])
+
+  @@index([phaseId])
+  @@index([statusId])
+  @@index([ownerId])
+  @@map("crm_customer_cards")
+}
+
+model CrmPhase {
+  id        Int      @id @default(autoincrement())
+  name      String
+  sortOrder Int      @default(0) @map("order")
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  statuses  CrmCustomerStatus[]
+  cards     CrmCustomerCard[]
+
+  @@map("crm_phases")
+}
+
+model CrmTask {
+  id                   Int      @id @default(autoincrement())
+  type                 String
+  title                String
+  description          String?
+  dueAt                DateTime? @map("due_at")
+  completedAt          DateTime? @map("completed_at")
+  priority             Int      @default(0)
+  ownerId              Int?     @map("owner_id")
+  relatedCustomerId    Int?     @map("related_customer_id")
+  relatedOpportunityId Int?     @map("related_opportunity_id")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  owner                User?    @relation("CrmTaskOwner", fields: [ownerId], references: [id])
+  customer             Customer? @relation(fields: [relatedCustomerId], references: [id])
+  opportunity          CrmOpportunity? @relation(fields: [relatedOpportunityId], references: [id])
+  notes                CrmNote[]
+
+  @@index([ownerId])
+  @@index([relatedCustomerId])
+  @@index([relatedOpportunityId])
+  @@index([dueAt])
+  @@map("crm_tasks")
+}
+
+model CrmTaskTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
+  type        String
+  title       String
+  description String?
+  priority    Int      @default(0)
+  dueDays     Int?     @map("due_days")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("crm_task_templates")
+}
+
+model CrmEvent {
+  id         Int      @id @default(autoincrement())
+  type       String
+  title      String?
+  startAt    DateTime @map("start_at")
+  endAt      DateTime? @map("end_at")
+  ownerId    Int?     @map("owner_id")
+  customerId Int?     @map("customer_id")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  owner      User?    @relation("CrmEventOwner", fields: [ownerId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([startAt])
+  @@index([ownerId])
+  @@index([customerId])
+  @@map("crm_events")
+}
+
+model CrmNote {
+  id            Int      @id @default(autoincrement())
+  content       String
+  ownerId       Int?     @map("owner_id")
+  customerId    Int?     @map("customer_id")
+  taskId        Int?     @map("task_id")
+  opportunityId Int?     @map("opportunity_id")
+  createdAt     DateTime @default(now())
+  owner         User?    @relation("CrmNoteOwner", fields: [ownerId], references: [id])
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  task          CrmTask? @relation(fields: [taskId], references: [id])
+  opportunity   CrmOpportunity? @relation(fields: [opportunityId], references: [id])
+
+  @@index([ownerId])
+  @@index([customerId])
+  @@index([taskId])
+  @@index([opportunityId])
+  @@index([createdAt])
+  @@map("crm_notes")
+}
+
+model CrmAutomation {
+  id         Int      @id @default(autoincrement())
+  name       String
+  trigger    String
+  conditions Json
+  actions    Json
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  runs       CrmAutomationRun[]
+
+  @@index([enabled])
+  @@index([trigger])
+  @@map("crm_automations")
+}
+
+model CrmSegment {
+  id        Int      @id @default(autoincrement())
+  name      String
+  filters   Json
+  dynamic   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("crm_segments")
+}
+
+model CrmNotification {
+  id         Int      @id @default(autoincrement())
+  type       String   @default("info")
+  message    String
+  ownerId    Int?     @map("owner_id")
+  customerId Int?     @map("customer_id")
+  createdAt  DateTime @default(now())
+  readAt     DateTime? @map("read_at")
+  owner      User?    @relation("CrmNotificationOwner", fields: [ownerId], references: [id])
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([ownerId])
+  @@index([customerId])
+  @@index([readAt])
+  @@map("crm_notifications")
+}
+
+model CrmAutomationRun {
+  id           Int      @id @default(autoincrement())
+  automationId Int      @map("automation_id")
+  customerId   Int?     @map("customer_id")
+  lastRunAt    DateTime @default(now()) @map("last_run_at")
+  runCount     Int      @default(1) @map("run_count")
+  automation   CrmAutomation @relation(fields: [automationId], references: [id])
+  customer     Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([automationId, customerId])
+  @@index([lastRunAt])
+  @@map("crm_automation_runs")
+}
+
+model CrmOpportunity {
+  id         Int      @id @default(autoincrement())
+  name       String
+  stage      String?
+  value      Decimal? @db.Decimal(12, 2)
+  customerId Int?     @map("customer_id")
+  ownerId    Int?     @map("owner_id")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  owner      User?    @relation("CrmOpportunityOwner", fields: [ownerId], references: [id])
+  tasks      CrmTask[]
+  notes      CrmNote[]
+
+  @@index([customerId])
+  @@index([ownerId])
+  @@map("crm_opportunities")
+}
+
+model CashClosure {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique
+  from      DateTime
+  to        DateTime
+  revenue   Decimal  @db.Decimal(12, 2)
+  cost      Decimal  @db.Decimal(12, 2)
+  margin    Decimal  @db.Decimal(12, 2)
+  breakdown Json?
+  createdAt DateTime @default(now())
 }

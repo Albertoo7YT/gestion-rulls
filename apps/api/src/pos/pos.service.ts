@@ -5,14 +5,20 @@ import {
 } from "@nestjs/common";
 import { Prisma, StockMoveChannel, StockMoveType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuditService } from "../audit/audit.service";
 import { PosReturnDto } from "./dto/pos-return.dto";
 import { PosSaleDto } from "./dto/pos-sale.dto";
+import { SeriesService } from "../common/series.service";
 
 @Injectable()
 export class PosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly seriesService: SeriesService,
+  ) {}
 
-  async createSale(dto: PosSaleDto) {
+  async createSale(dto: PosSaleDto, userId?: number) {
     return this.prisma.$transaction(async (tx) => {
       if (!dto.lines?.length) {
         throw new BadRequestException("At least one line is required");
@@ -51,15 +57,86 @@ export class PosService {
       }
 
       await this.ensureProductsExist(tx, dto.lines.map((line) => line.sku));
+      const productCosts = await tx.product.findMany({
+        where: { sku: { in: dto.lines.map((line) => line.sku) } },
+        select: { sku: true, engravingCost: true },
+      });
+      const productCostMap = new Map(
+        productCosts.map((item) => [item.sku, item.engravingCost ?? 0]),
+      );
+      const accessoryIds = Array.from(
+        new Set(
+          dto.lines
+            .flatMap((line) => line.addOns ?? [])
+            .map((addOn) => addOn.accessoryId),
+        ),
+      );
+      const accessories = accessoryIds.length
+        ? await tx.accessory.findMany({ where: { id: { in: accessoryIds } } })
+        : [];
+      if (accessoryIds.length && accessories.length !== accessoryIds.length) {
+        throw new BadRequestException("Some accessories do not exist");
+      }
+      const accessoryMap = new Map(accessories.map((a) => [a.id, a]));
       if (!dto.allowNegativeStock) {
         await this.ensureNoNegativeStock(tx, dto.warehouseId, dto.lines);
       }
 
       const isGift = dto.giftSale === true;
+      const saleTotal = dto.lines.reduce((sum, line) => {
+        const unitPrice = isGift ? 0 : Number(line.unitPrice ?? 0);
+        const addOnTotal = (line.addOns ?? []).reduce((addSum, addOn) => {
+          const qty = Number(addOn.quantity ?? 1);
+          const price = isGift ? 0 : Number(addOn.price ?? 0);
+          return addSum + price * qty;
+        }, 0);
+        return sum + unitPrice * line.quantity + addOnTotal;
+      }, 0);
+
+      let paymentStatus = dto.paymentStatus;
+      let paidAmount = dto.paidAmount;
+      if (!paymentStatus) {
+        paymentStatus = dto.channel === "B2B" ? "pending" : "paid";
+      }
+      if (paymentStatus === "paid") {
+        paidAmount = saleTotal;
+      } else if (paymentStatus === "pending") {
+        paidAmount = 0;
+      } else if (paymentStatus === "partial") {
+        if (paidAmount == null) {
+          throw new BadRequestException("paidAmount is required for partial payment");
+        }
+        if (paidAmount <= 0 || paidAmount >= saleTotal) {
+          throw new BadRequestException("paidAmount must be between 0 and total");
+        }
+      }
+      if (paidAmount != null && paidAmount >= saleTotal) {
+        paymentStatus = "paid";
+        paidAmount = saleTotal;
+      }
+
       const notesParts: string[] = [];
       if (isGift) notesParts.push("REGALO");
       if (dto.paymentMethod) notesParts.push(dto.paymentMethod);
       if (dto.notes) notesParts.push(dto.notes);
+
+      let reference = dto.reference?.trim();
+      let seriesMeta: {
+        reference: string;
+        seriesCode: string;
+        seriesYear: number | null;
+        seriesNumber: number;
+      } | null = null;
+      const resolvedDate = this.resolveMoveDate(dto.date);
+      if (!reference) {
+        const scope = dto.channel === "B2B" ? "sale_b2b" : "sale_b2c";
+        seriesMeta = await this.seriesService.allocate(
+          tx,
+          scope,
+          resolvedDate ?? new Date(),
+        );
+        reference = seriesMeta.reference;
+      }
 
       const created = await tx.stockMove.create({
         data: {
@@ -68,34 +145,88 @@ export class PosService {
           fromId: dto.warehouseId,
           toId: null,
           customerId: dto.customerId,
-          reference: dto.reference,
+          reference,
+          seriesCode: seriesMeta?.seriesCode,
+          seriesYear: seriesMeta?.seriesYear ?? undefined,
+          seriesNumber: seriesMeta?.seriesNumber,
           notes: notesParts.length ? notesParts.join(" | ") : undefined,
-          date: dto.date ? new Date(dto.date) : undefined,
+          date: resolvedDate ?? undefined,
+          paymentStatus: paymentStatus ?? "paid",
+          paidAmount: paidAmount ?? 0,
           lines: {
-            create: dto.lines.map((line) => ({
-              sku: line.sku,
-              quantity: line.quantity,
-              unitPrice: isGift ? 0 : line.unitPrice,
-            })),
+            create: dto.lines.map((line) => {
+              const addOns = (line.addOns ?? []).map((addOn) => {
+                const accessory = accessoryMap.get(addOn.accessoryId);
+                const quantity = addOn.quantity ?? 1;
+                return {
+                  id: addOn.accessoryId,
+                  name: accessory?.name ?? "",
+                  quantity,
+                  cost: accessory?.cost ?? 0,
+                  price: isGift ? 0 : addOn.price ?? 0,
+                };
+              });
+              const addOnCost = addOns.reduce(
+                (sum, item) =>
+                  sum + Number(item.cost ?? 0) * Number(item.quantity ?? 1),
+                0,
+              );
+              const engravingCost = Number(productCostMap.get(line.sku) ?? 0);
+              const addOnPrice = addOns.reduce(
+                (sum, item) =>
+                  sum + Number(item.price ?? 0) * Number(item.quantity ?? 1),
+                0,
+              );
+              return {
+                sku: line.sku,
+                quantity: line.quantity,
+                unitPrice: isGift ? 0 : line.unitPrice,
+                addOnCost: addOnCost + engravingCost || undefined,
+                addOnPrice: addOnPrice || undefined,
+                addOns: addOns.length ? addOns : undefined,
+              };
+            }),
           },
         },
         include: { lines: true },
       });
 
-      if (!dto.reference?.trim()) {
-        const orderNumber = `POS-${String(created.id).padStart(6, "0")}`;
-        return tx.stockMove.update({
-          where: { id: created.id },
-          data: { reference: orderNumber },
-          include: { lines: true },
-        });
-      }
-
+      await this.auditService.log({
+        userId,
+        method: "POST",
+        path: "/pos/sale",
+        action: "stock_change",
+        entity: "stock_move",
+        entityId: created.id.toString(),
+        requestBody: {
+          type: created.type,
+          fromId: created.fromId,
+          lines: created.lines,
+        },
+        statusCode: 201,
+      });
       return created;
     });
   }
 
-  async createReturn(dto: PosReturnDto) {
+  private resolveMoveDate(dateValue?: string) {
+    if (!dateValue) return undefined;
+    const hasTime = dateValue.includes("T");
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    if (!hasTime) {
+      const now = new Date();
+      parsed.setHours(
+        now.getHours(),
+        now.getMinutes(),
+        now.getSeconds(),
+        now.getMilliseconds(),
+      );
+    }
+    return parsed;
+  }
+
+  async createReturn(dto: PosReturnDto, userId?: number) {
     return this.prisma.$transaction(async (tx) => {
       if (!dto.lines?.length) {
         throw new BadRequestException("At least one line is required");
@@ -118,11 +249,15 @@ export class PosService {
         throw new BadRequestException("Sale does not have a warehouse");
       }
 
+      const targetWarehouseId = dto.warehouseId ?? sale.fromId;
+      if (!targetWarehouseId) {
+        throw new BadRequestException("warehouseId is required");
+      }
       const warehouse = await tx.location.findFirst({
-        where: { id: sale.fromId, active: true, type: "warehouse" },
+        where: { id: targetWarehouseId, active: true, type: "warehouse" },
       });
       if (!warehouse) {
-        throw new BadRequestException("Sale warehouse is not active");
+        throw new BadRequestException("warehouseId must be an active warehouse");
       }
 
       const saleTotals = new Map<
@@ -185,15 +320,29 @@ export class PosService {
           ? StockMoveType.b2b_return
           : StockMoveType.b2c_return;
 
-      return tx.stockMove.create({
+      let seriesData:
+        | { reference: string; seriesCode: string; seriesYear: number | null; seriesNumber: number }
+        | null = null;
+      if (!dto.reference) {
+        seriesData = await this.seriesService.allocate(
+          tx,
+          "return",
+          dto.date ? new Date(dto.date) : new Date(),
+        );
+      }
+
+      const created = await tx.stockMove.create({
         data: {
           type: returnType,
           channel: sale.channel,
-          toId: sale.fromId,
+          toId: targetWarehouseId,
           customerId: sale.customerId ?? undefined,
           relatedMoveId: sale.id,
           date: dto.date ? new Date(dto.date) : undefined,
-          reference: `RETURN-${sale.reference ?? sale.id}`,
+          reference: dto.reference ?? seriesData?.reference,
+          seriesCode: seriesData?.seriesCode,
+          seriesYear: seriesData?.seriesYear ?? undefined,
+          seriesNumber: seriesData?.seriesNumber,
           notes: dto.notes,
           lines: {
             create: linesToReturn.map((line) => ({
@@ -205,6 +354,21 @@ export class PosService {
         },
         include: { lines: true },
       });
+      await this.auditService.log({
+        userId,
+        method: "POST",
+        path: "/pos/return",
+        action: "stock_change",
+        entity: "stock_move",
+        entityId: created.id.toString(),
+        requestBody: {
+          type: created.type,
+          toId: created.toId,
+          lines: created.lines,
+        },
+        statusCode: 201,
+      });
+      return created;
     });
   }
 

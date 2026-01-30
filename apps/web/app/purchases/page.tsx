@@ -13,6 +13,7 @@ type Product = {
   cost?: string | null;
   manufacturerRef?: string | null;
   photoUrl?: string | null;
+  photoUrls?: string[] | null;
   color?: string | null;
 };
 
@@ -69,6 +70,56 @@ export default function PurchasesPage() {
   const [receiveDate, setReceiveDate] = useState("");
   const [receiveNotes, setReceiveNotes] = useState("");
 
+  const normalizeSku = (value: string) =>
+    value.trim().replace(/^#/, "").toLowerCase();
+
+  const getSkuNumber = (value: string) => {
+    const match = normalizeSku(value).match(/(\d+)$/);
+    return match ? match[1] : "";
+  };
+
+  const findProductBySku = (value: string) => {
+    const needle = normalizeSku(value);
+    if (!needle) return null;
+    return (
+      products.find((p) => normalizeSku(p.sku) === needle) ?? null
+    );
+  };
+
+  const findProductByPrefix = (value: string) => {
+    const needle = normalizeSku(value);
+    if (!needle) return null;
+    const matches = products.filter((p) =>
+      normalizeSku(p.sku).startsWith(needle),
+    );
+    if (matches.length === 1) return matches[0];
+    return null;
+  };
+
+  const findProductByNumber = (value: string) => {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const matches = products.filter((p) => getSkuNumber(p.sku) === trimmed);
+    if (matches.length === 1) return matches[0];
+    return null;
+  };
+
+  const selectedProduct = useMemo(() => {
+    return (
+      findProductBySku(lineDraft.sku) ||
+      findProductByNumber(lineDraft.sku) ||
+      findProductByPrefix(lineDraft.sku)
+    );
+  }, [lineDraft.sku, products]);
+
+  const getProductImage = (product: Product) => {
+    if (product.photoUrl) return product.photoUrl;
+    if (Array.isArray(product.photoUrls) && product.photoUrls.length > 0) {
+      return product.photoUrls[0] ?? null;
+    }
+    return null;
+  };
+
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLowerCase();
     if (!term) return products;
@@ -119,17 +170,29 @@ export default function PurchasesPage() {
 
   async function handleCsvImport(rows: Record<string, string>[]) {
     const parsed: PurchaseOrderLine[] = [];
+    let skipped = 0;
     for (const row of rows) {
       const sku = row.sku?.trim();
-      if (!sku) continue;
+      if (!sku) {
+        skipped += 1;
+        continue;
+      }
+      const product = findProductBySku(sku);
+      if (!product) {
+        skipped += 1;
+        continue;
+      }
       const qty = Number(row.quantity || 1);
-      if (!Number.isFinite(qty) || qty <= 0) continue;
+      if (!Number.isFinite(qty) || qty <= 0) {
+        skipped += 1;
+        continue;
+      }
       const cost = row.unitCost ? Number(row.unitCost) : undefined;
       parsed.push({
-        sku,
-        productName: row.productName?.trim() || undefined,
-        manufacturerRef: row.manufacturerRef?.trim() || undefined,
-        productType: row.productType === "quick" ? "quick" : "standard",
+        sku: product.sku,
+        productName: product.name || undefined,
+        manufacturerRef: product.manufacturerRef || undefined,
+        productType: product.type === "quick" ? "quick" : "standard",
         quantity: qty,
         unitCost: Number.isFinite(cost) ? cost : undefined,
       });
@@ -139,12 +202,18 @@ export default function PurchasesPage() {
       return;
     }
     setLines((prev) => [...prev, ...parsed]);
-    setCsvStatus(`Importadas ${parsed.length} lineas.`);
+    setCsvStatus(
+      `Importadas ${parsed.length} lineas.${skipped ? ` ${skipped} ignoradas (SKU invalido o cantidad).` : ""}`,
+    );
   }
 
   function addLine() {
     if (!lineDraft.sku) {
       setStatus("Selecciona un producto.");
+      return;
+    }
+    if (!selectedProduct) {
+      setStatus("El producto no existe. Crea la ficha antes de añadir la entrada.");
       return;
     }
     if (lineDraft.quantity < 1) {
@@ -155,10 +224,11 @@ export default function PurchasesPage() {
     setLines([
       ...lines,
       {
-        sku: lineDraft.sku,
-        productName: lineDraft.productName || undefined,
-        manufacturerRef: lineDraft.manufacturerRef || undefined,
-        productType: lineDraft.productType,
+        sku: selectedProduct.sku,
+        productName: selectedProduct.name || lineDraft.productName || undefined,
+        manufacturerRef:
+          selectedProduct.manufacturerRef || lineDraft.manufacturerRef || undefined,
+        productType: selectedProduct.type || lineDraft.productType,
         quantity: lineDraft.quantity,
         unitCost: lineDraft.unitCost ? Number(lineDraft.unitCost) : undefined,
       },
@@ -222,7 +292,9 @@ export default function PurchasesPage() {
     <div className="stack">
       <h2>Entradas</h2>
       <div className="row">
-        <button onClick={openNewEntry}>Nueva entrada</button>
+        <button className="btn-block" onClick={openNewEntry}>
+          Nueva entrada
+        </button>
       </div>
       {showForm && (
         <div
@@ -319,21 +391,47 @@ export default function PurchasesPage() {
                 placeholder="SKU del producto"
                 value={lineDraft.sku}
                 onChange={(e) => {
-                  const sku = e.target.value.trim();
-                  const product = products.find((p) => p.sku === sku);
+                  const sku = e.target.value;
+                  const product = findProductBySku(sku);
                   const cost = product?.cost ? Number(product.cost) : "";
-                  setLineDraft({
-                    ...lineDraft,
-                    sku,
-                    productName: lineDraft.productName || product?.name || "",
+                  setLineDraft((prev) => ({
+                    ...prev,
+                    sku: product?.sku ?? sku.trim(),
+                    productName: prev.productName || product?.name || "",
                     manufacturerRef:
-                      lineDraft.manufacturerRef || product?.manufacturerRef || "",
-                    productType: lineDraft.productType || product?.type || "standard",
-                    unitCost: lineDraft.unitCost || cost.toString(),
-                  });
+                      prev.manufacturerRef || product?.manufacturerRef || "",
+                    productType: prev.productType || product?.type || "standard",
+                    unitCost: prev.unitCost || cost.toString(),
+                  }));
                 }}
               />
             </label>
+            {selectedProduct && (
+              <div className="purchase-product-preview">
+                <div className="purchase-product-image">
+                  {getProductImage(selectedProduct) ? (
+                    <img
+                      src={getProductImage(selectedProduct) ?? undefined}
+                      alt={selectedProduct.name}
+                    />
+                  ) : (
+                    <div className="product-placeholder">Sin imagen</div>
+                  )}
+                </div>
+                <div className="purchase-product-body">
+                  <strong>{selectedProduct.name}</strong>
+                  <span className="muted">{selectedProduct.sku}</span>
+                  {selectedProduct.manufacturerRef && (
+                    <span className="muted">
+                      Ref: {selectedProduct.manufacturerRef}
+                    </span>
+                  )}
+                  {selectedProduct.color && (
+                    <span className="muted">Color: {selectedProduct.color}</span>
+                  )}
+                </div>
+              </div>
+            )}
             <label className="stack">
               <span className="muted">Nombre del producto</span>
               <input
@@ -416,64 +514,64 @@ export default function PurchasesPage() {
               />
             </label>
           </div>
-          <div className="purchase-product-grid">
-            {filteredProducts.map((p) => (
-              <button
-                key={p.sku}
-                type="button"
-                className="purchase-product-card"
-                onClick={() => {
-                  const cost = p.cost ? Number(p.cost) : "";
-                  setLineDraft({
-                    sku: p.sku,
-                    productName: p.name || "",
-                    manufacturerRef: p.manufacturerRef || "",
-                    productType: p.type || "standard",
-                    quantity: lineDraft.quantity,
-                    unitCost: lineDraft.unitCost || cost.toString(),
-                  });
-                }}
-              >
-                <div className="purchase-product-image">
-                  {p.photoUrl ? (
-                    <img src={p.photoUrl} alt={p.name} />
-                  ) : (
-                    <div className="product-placeholder">Sin imagen</div>
-                  )}
-                </div>
-                <div className="purchase-product-body">
-                  <strong>{p.name || p.sku}</strong>
-                  <span className="muted">{p.sku}</span>
-                  {p.manufacturerRef && (
-                    <span className="muted">Ref: {p.manufacturerRef}</span>
-                  )}
-                  {p.color && <span className="muted">Color: {p.color}</span>}
-                </div>
-              </button>
-            ))}
-            {filteredProducts.length === 0 && (
-              <div className="purchase-product-empty">
-                <span className="muted">Sin resultados</span>
-                {productSearch.trim() && (
+            {productSearch.trim() ? (
+              <div className="purchase-product-grid">
+                {filteredProducts.slice(0, 8).map((p) => (
                   <button
-                    className="secondary"
-                    type="button"
-                    onClick={() =>
-                      setLineDraft({
-                        ...lineDraft,
-                        sku: productSearch.trim(),
-                        productName: lineDraft.productName || "",
-                        manufacturerRef: lineDraft.manufacturerRef || "",
-                        productType: lineDraft.productType || "standard",
-                      })
-                    }
-                  >
-                    Anadir SKU {productSearch.trim()}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                  key={p.sku}
+                  type="button"
+                  className="purchase-product-card"
+                  onClick={() => {
+                    const cost = p.cost ? Number(p.cost) : "";
+                    setLineDraft({
+                      sku: p.sku,
+                      productName: p.name || "",
+                      manufacturerRef: p.manufacturerRef || "",
+                      productType: p.type || "standard",
+                      quantity: lineDraft.quantity,
+                      unitCost: lineDraft.unitCost || cost.toString(),
+                    });
+                  }}
+                >
+                  <div className="purchase-product-image">
+                    {getProductImage(p) ? (
+                      <img src={getProductImage(p) ?? undefined} alt={p.name} />
+                    ) : (
+                      <div className="product-placeholder">Sin imagen</div>
+                    )}
+                  </div>
+                  <div className="purchase-product-body">
+                    <strong>{p.name || p.sku}</strong>
+                    <span className="muted">{p.sku}</span>
+                    {p.manufacturerRef && (
+                      <span className="muted">Ref: {p.manufacturerRef}</span>
+                    )}
+                    {p.color && <span className="muted">Color: {p.color}</span>}
+                  </div>
+                </button>
+              ))}
+              {filteredProducts.length === 0 && (
+                <div className="purchase-product-empty">
+                  <span className="muted">
+                    Sin resultados. Crea la ficha del producto primero.
+                  </span>
+                </div>
+              )}
+              {filteredProducts.length > 8 && (
+                <div className="purchase-product-empty">
+                  <span className="muted">
+                    Mostrando 8 de {filteredProducts.length}. Refina la busqueda.
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="purchase-product-empty">
+              <span className="muted">
+                Escribe para buscar productos por SKU, nombre o ref.
+              </span>
+            </div>
+          )}
           <table className="table">
             <thead>
               <tr>
@@ -564,6 +662,7 @@ export default function PurchasesPage() {
             />
           </label>
         </div>
+        {status && <p className="muted">{status}</p>}
         <table className="table">
           <thead>
             <tr>

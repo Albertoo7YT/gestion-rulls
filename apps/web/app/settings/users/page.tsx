@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { api } from "../../../lib/api";
 
 type User = {
@@ -10,36 +11,40 @@ type User = {
   role: string;
   active: boolean;
   createdAt: string;
+  twoFactorEnabled?: boolean;
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [me, setMe] = useState<User | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    email: "",
-    username: "",
-    password: "",
-  });
+  const [otpToken, setOtpToken] = useState("");
+  const [otpSecret, setOtpSecret] = useState<string | null>(null);
+  const [otpUrl, setOtpUrl] = useState<string | null>(null);
+  const [otpQr, setOtpQr] = useState<string | null>(null);
+
+  async function loadMe() {
+    const resp = await api.get<{ user: User | null }>("/auth/me");
+    setMe(resp.user ?? null);
+  }
 
   async function load() {
     setUsers(await api.get<User[]>("/users"));
   }
 
   useEffect(() => {
-    load().catch((err) => setStatus(err.message));
+    Promise.all([load(), loadMe()]).catch((err) => setStatus(err.message));
   }, []);
 
-  async function createUser() {
-    setStatus(null);
-    await api.post("/users", {
-      email: form.email,
-      username: form.username,
-      password: form.password,
-      role: "admin",
-    });
-    setForm({ email: "", username: "", password: "" });
-    await load();
-  }
+  useEffect(() => {
+    if (!otpUrl) {
+      setOtpQr(null);
+      return;
+    }
+    QRCode.toDataURL(otpUrl)
+      .then((dataUrl) => setOtpQr(dataUrl))
+      .catch(() => setOtpQr(null));
+  }, [otpUrl]);
 
   async function toggleActive(user: User) {
     setStatus(null);
@@ -57,39 +62,86 @@ export default function UsersPage() {
     await load();
   }
 
+  async function setupTwoFactor() {
+    setStatus(null);
+    const result = await api.post<{ secret: string; otpauthUrl: string }>(
+      "/auth/2fa/setup",
+    );
+    setOtpSecret(result.secret);
+    setOtpUrl(result.otpauthUrl);
+  }
+
+  async function enableTwoFactor() {
+    if (!otpToken) return;
+    setStatus(null);
+    await api.post("/auth/2fa/enable", { token: otpToken });
+    setOtpToken("");
+    await loadMe();
+  }
+
+  async function disableTwoFactor() {
+    if (!otpToken) return;
+    setStatus(null);
+    await api.post("/auth/2fa/disable", { token: otpToken });
+    setOtpToken("");
+    setOtpSecret(null);
+    setOtpUrl(null);
+    await loadMe();
+  }
+
   return (
     <div className="stack">
       <h2>Usuarios</h2>
+      <div className="row">
+        <a className="button secondary" href="/settings/audit">
+          Ver log
+        </a>
+      </div>
       <div className="card stack">
-        <strong>Crear usuario</strong>
+        <strong>Seguridad 2FA</strong>
+        <p className="muted">
+          Estado: {me?.twoFactorEnabled ? "Activado" : "Desactivado"}
+        </p>
         <div className="row">
+          <button className="secondary" onClick={setupTwoFactor}>
+            Generar codigo
+          </button>
           <label className="stack">
-            <span className="muted">Email</span>
+            <span className="muted">Codigo 2FA</span>
             <input
               className="input"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              value={otpToken}
+              onChange={(e) => setOtpToken(e.target.value)}
+              placeholder="123456"
             />
           </label>
-          <label className="stack">
-            <span className="muted">Usuario</span>
-            <input
-              className="input"
-              value={form.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-            />
-          </label>
-          <label className="stack">
-            <span className="muted">Contrasena</span>
-            <input
-              className="input"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-          </label>
-          <button onClick={createUser}>Crear</button>
+          {!me?.twoFactorEnabled ? (
+            <button onClick={enableTwoFactor}>Activar 2FA</button>
+          ) : (
+            <button className="secondary" onClick={disableTwoFactor}>
+              Desactivar 2FA
+            </button>
+          )}
         </div>
+        {otpSecret && (
+          <div className="stack">
+            <span className="muted">Secreto (para Authenticator):</span>
+            <code>{otpSecret}</code>
+            {otpUrl && (
+              <>
+                <span className="muted">OTPAUTH URL:</span>
+                <code>{otpUrl}</code>
+              </>
+            )}
+            {otpQr && (
+              <img
+                src={otpQr}
+                alt="QR 2FA"
+                style={{ width: 180, height: 180, borderRadius: 12 }}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card stack">

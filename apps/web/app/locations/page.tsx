@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 
-type LocationType = "warehouse" | "retail";
+type LocationType = "warehouse";
 
 type Location = {
   id: number;
@@ -52,7 +52,7 @@ export default function LocationsPage() {
   async function loadLocations() {
     const query = filter === "all" ? "" : `?type=${filter}`;
     const data = await api.get<Location[]>(`/locations${query}`);
-    setLocations(data);
+    setLocations(data.filter((loc) => loc.type === "warehouse"));
   }
 
   useEffect(() => {
@@ -95,152 +95,46 @@ export default function LocationsPage() {
 
       <div className="card stack">
         <button onClick={() => setShowCreate((prev) => !prev)}>
-          {showCreate ? "Ocultar" : "Anadir location"}
+          {showCreate ? "Ocultar" : "Anadir almacen"}
         </button>
       </div>
 
       {showCreate && (
         <div className="card stack">
-        <strong>Crear location</strong>
-        <div className="row">
-          <label className="stack">
-            <span className="muted">Tipo</span>
-            <select
-              className="input"
-              value={form.type}
-              onChange={(e) =>
-                setForm({ ...form, type: e.target.value as LocationType })
-              }
-            >
-              <option value="warehouse">Warehouse</option>
-              <option value="retail">Retail</option>
-            </select>
-          </label>
-          <label className="stack">
-            <span className="muted">Nombre</span>
-            <input
-              className="input"
-              placeholder="Nombre"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </label>
-          <label className="stack">
-            <span className="muted">Ciudad</span>
-            <input
-              className="input"
-              placeholder="Ciudad"
-              value={form.city}
-              onChange={(e) => setForm({ ...form, city: e.target.value })}
-            />
-          </label>
-          <button onClick={createLocation}>Crear</button>
-        </div>
-        {form.type === "retail" && (
+          <strong>Crear almacen</strong>
           <div className="row">
             <label className="stack">
-              <span className="muted">Legal name</span>
-              <input
+              <span className="muted">Tipo</span>
+              <select
                 className="input"
-                placeholder="Legal name"
-                value={form.legalName ?? ""}
-                onChange={(e) => setForm({ ...form, legalName: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Tax ID</span>
-              <input
-                className="input"
-                placeholder="Tax ID"
-                value={form.taxId ?? ""}
-                onChange={(e) => setForm({ ...form, taxId: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Direccion</span>
-              <input
-                className="input"
-                placeholder="Direccion"
-                value={form.address ?? ""}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">CP</span>
-              <input
-                className="input"
-                placeholder="CP"
-                value={form.postalCode ?? ""}
-                onChange={(e) => setForm({ ...form, postalCode: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Provincia</span>
-              <input
-                className="input"
-                placeholder="Provincia"
-                value={form.province ?? ""}
-                onChange={(e) => setForm({ ...form, province: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Pais</span>
-              <input
-                className="input"
-                placeholder="Pais"
-                value={form.country ?? ""}
-                onChange={(e) => setForm({ ...form, country: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Telefono</span>
-              <input
-                className="input"
-                placeholder="Telefono"
-                value={form.phone ?? ""}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Contacto</span>
-              <input
-                className="input"
-                placeholder="Contacto"
-                value={form.contactName ?? ""}
-                onChange={(e) => setForm({ ...form, contactName: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Email</span>
-              <input
-                className="input"
-                placeholder="Email"
-                value={form.email ?? ""}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-            </label>
-            <label className="stack">
-              <span className="muted">Payment terms</span>
-              <input
-                className="input"
-                placeholder="Payment terms"
-                value={form.paymentTerms ?? ""}
+                value={form.type}
                 onChange={(e) =>
-                  setForm({ ...form, paymentTerms: e.target.value })
+                  setForm({ ...form, type: e.target.value as LocationType })
                 }
+              >
+                <option value="warehouse">Almacen</option>
+              </select>
+            </label>
+            <label className="stack">
+              <span className="muted">Nombre</span>
+              <input
+                className="input"
+                placeholder="Nombre"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </label>
             <label className="stack">
-              <span className="muted">Notas</span>
+              <span className="muted">Ciudad</span>
               <input
                 className="input"
-                placeholder="Notas"
-                value={form.notes ?? ""}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                placeholder="Ciudad"
+                value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })}
               />
             </label>
+            <button onClick={createLocation}>Crear</button>
           </div>
-        )}
         </div>
       )}
 
@@ -254,8 +148,7 @@ export default function LocationsPage() {
               onChange={(e) => setFilter(e.target.value as LocationType | "all")}
             >
               <option value="all">Todas</option>
-              <option value="warehouse">Warehouse</option>
-              <option value="retail">Retail</option>
+              <option value="warehouse">Almacen</option>
             </select>
           </label>
           <button className="secondary" onClick={loadLocations}>
@@ -277,7 +170,7 @@ export default function LocationsPage() {
             {locations.map((l) => (
               <tr key={l.id}>
                 <td>{l.id}</td>
-                <td>{l.type}</td>
+                <td>Almacen</td>
                 <td>
                   <a href={`/stock?locationId=${l.id}`}>{l.name}</a>
                 </td>

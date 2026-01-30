@@ -43,6 +43,11 @@ export class CreateProductDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  engravingCost?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   rrp?: number;
 
   @IsOptional()

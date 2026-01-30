@@ -26,6 +26,14 @@ type WooOrder = {
     first_name?: string;
     last_name?: string;
     email?: string;
+    phone?: string;
+    vat_number?: string;
+    address_1?: string;
+    address_2?: string;
+    postcode?: string;
+    city?: string;
+    state?: string;
+    country?: string;
   };
   line_items: WooLineItem[];
 };
@@ -132,9 +140,22 @@ export class WooImportService {
         });
 
         if (existing) {
+          const customerName = `${order.billing?.first_name ?? ""} ${
+            order.billing?.last_name ?? ""
+          }`.trim();
+          const customer = await this.upsertCustomerFromWoo(
+            tx,
+            order,
+            customerName,
+          );
           const updated = await tx.webOrder.update({
             where: { wooOrderId },
-            data: { status: order.status },
+            data: {
+              status: order.status,
+              customerName: customerName || existing.customerName,
+              email: order.billing?.email ?? existing.email,
+              customerId: customer?.id ?? existing.customerId,
+            },
           });
           return { wooOrderId, action: "updated", status: updated.status };
         }
@@ -175,6 +196,8 @@ export class WooImportService {
           order.billing?.last_name ?? ""
         }`.trim();
 
+        const customer = await this.upsertCustomerFromWoo(tx, order, customerName);
+
         const created = await tx.webOrder.create({
           data: {
             wooOrderId,
@@ -187,6 +210,7 @@ export class WooImportService {
             currency: order.currency,
             importedAt: new Date(),
             assignedWarehouseId: importWarehouseId,
+            customerId: customer?.id ?? undefined,
             notes: warnings.length > 0 ? warnings.join(" | ") : null,
             lines: { create: linesData },
           },
@@ -211,6 +235,55 @@ export class WooImportService {
 
     this.logger.log(`Imported ${results.length} orders`);
     return { imported: results.length, results };
+  }
+
+  private async upsertCustomerFromWoo(
+    tx: Prisma.TransactionClient,
+    order: WooOrder,
+    customerName: string,
+  ) {
+    const email = order.billing?.email ?? null;
+    const phone = order.billing?.phone ?? null;
+    const name = customerName || "Cliente web";
+
+    const existing = email
+      ? await tx.customer.findFirst({ where: { email } })
+      : null;
+
+    const data: Prisma.CustomerCreateInput = {
+      type: "b2c",
+      name,
+      email,
+      phone,
+      taxId: order.billing?.vat_number ?? null,
+      addressLine1: order.billing?.address_1 ?? null,
+      addressLine2: order.billing?.address_2 ?? null,
+      postalCode: order.billing?.postcode ?? null,
+      city: order.billing?.city ?? null,
+      province: order.billing?.state ?? null,
+      country: order.billing?.country ?? null,
+    };
+
+    if (!existing) {
+      return tx.customer.create({ data });
+    }
+
+    const updateData: Prisma.CustomerUpdateInput = {};
+    if (!existing.name && name) updateData.name = name;
+    if (!existing.email && email) updateData.email = email;
+    if (!existing.phone && phone) updateData.phone = phone;
+    if (!existing.taxId && data.taxId) updateData.taxId = data.taxId;
+    if (!existing.addressLine1 && data.addressLine1) updateData.addressLine1 = data.addressLine1;
+    if (!existing.addressLine2 && data.addressLine2) updateData.addressLine2 = data.addressLine2;
+    if (!existing.postalCode && data.postalCode) updateData.postalCode = data.postalCode;
+    if (!existing.city && data.city) updateData.city = data.city;
+    if (!existing.province && data.province) updateData.province = data.province;
+    if (!existing.country && data.country) updateData.country = data.country;
+
+    if (Object.keys(updateData).length > 0) {
+      return tx.customer.update({ where: { id: existing.id }, data: updateData });
+    }
+    return existing;
   }
 
   private async fetchOrders(includePending: boolean): Promise<WooOrder[]> {

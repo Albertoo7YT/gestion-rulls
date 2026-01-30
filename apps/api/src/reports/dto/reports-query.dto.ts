@@ -10,6 +10,14 @@ export class ReportsQueryDto {
   to?: string;
 
   @IsOptional()
-  @IsIn(["B2B", "B2C"])
-  channel?: "B2B" | "B2C";
+  @IsIn(["B2B", "B2C", "WEB"])
+  channel?: "B2B" | "B2C" | "WEB";
+
+  @IsOptional()
+  @IsString()
+  seriesScope?: string;
+
+  @IsOptional()
+  @IsString()
+  seriesCode?: string;
 }

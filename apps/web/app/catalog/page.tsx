@@ -188,7 +188,7 @@ export default function CatalogPage() {
             Selecciona las gafas que quieres mostrar en tu catalogo.
           </p>
         </div>
-        <div className="row">
+        <div className="row catalog-actions">
           <button onClick={() => setEditing((prev) => !prev)}>
             {editing ? "Ver catalogo" : "Editar catalogo"}
           </button>

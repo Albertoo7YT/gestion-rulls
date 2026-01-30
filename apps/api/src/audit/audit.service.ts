@@ -18,9 +18,20 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   async log(payload: AuditPayload) {
+    let userId: number | undefined;
+    if (payload.userId) {
+      const existing = await this.prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { id: true },
+      });
+      if (existing) {
+        userId = existing.id;
+      }
+    }
+
     return this.prisma.auditLog.create({
       data: {
-        userId: payload.userId ?? undefined,
+        userId,
         method: payload.method,
         path: payload.path,
         action: payload.action,

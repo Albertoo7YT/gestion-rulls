@@ -13,6 +13,7 @@ type ProductDetail = {
   manufacturerRef?: string | null;
   color?: string | null;
   cost: number | null;
+  engravingCost?: number | null;
   rrp: number | null;
   b2bPrice?: number | null;
   active: boolean;
@@ -141,6 +142,10 @@ export default function ProductDetailPage({
             <div>
               <strong>Coste</strong>
               <span>{product.cost ?? "-"}</span>
+            </div>
+            <div>
+              <strong>Coste grabado</strong>
+              <span>{product.engravingCost ?? "-"}</span>
             </div>
             <div>
               <strong>PVP</strong>

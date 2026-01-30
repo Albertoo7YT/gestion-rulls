@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuditService } from "../audit/audit.service";
 import { CreateProductDto } from "./dto/create-product.dto";
 import { CreateQuickProductDto } from "./dto/create-quick-product.dto";
 import { ConvertToStandardDto } from "./dto/convert-to-standard.dto";
@@ -9,7 +10,10 @@ import { UpdateProductDto } from "./dto/update-product.dto";
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   list(query: ListProductsQueryDto) {
     const search = query.search?.trim() ?? "";
@@ -155,11 +159,11 @@ export class ProductsService {
     }));
   }
 
-  createStandard(data: CreateProductDto) {
+  createStandard(data: CreateProductDto, userId?: number) {
     return this.prisma.$transaction(async (tx) => {
       await this.ensureCategories(tx, data.categoryIds);
       try {
-        return tx.product.create({
+        const created = await tx.product.create({
           data: {
             sku: data.sku,
             name: data.name,
@@ -170,6 +174,7 @@ export class ProductsService {
             manufacturerRef: data.manufacturerRef,
             color: data.color,
             cost: data.cost,
+            engravingCost: data.engravingCost,
             rrp: data.rrp,
             b2bPrice: data.b2bPrice,
             active: data.active ?? true,
@@ -182,6 +187,23 @@ export class ProductsService {
               : undefined,
           },
         });
+        await this.auditService.log({
+          userId,
+          method: "POST",
+          path: "/products",
+          action: "price_change",
+          entity: "product",
+          entityId: created.sku,
+          requestBody: {
+            sku: created.sku,
+            cost: created.cost,
+            engravingCost: created.engravingCost,
+            rrp: created.rrp,
+            b2bPrice: created.b2bPrice,
+          },
+          statusCode: 201,
+        });
+        return created;
       } catch (err) {
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -194,7 +216,7 @@ export class ProductsService {
     });
   }
 
-  async createQuick(data: CreateQuickProductDto) {
+  async createQuick(data: CreateQuickProductDto, userId?: number) {
     return this.prisma.$transaction(async (tx) => {
       await this.ensureCategories(tx, data.categoryIds);
       await tx.productCounter.upsert({
@@ -211,7 +233,7 @@ export class ProductsService {
       const sequence = updated.nextNumber - 1;
       const sku = `TMP-${String(sequence).padStart(4, "0")}`;
 
-      return tx.product.create({
+      const created = await tx.product.create({
         data: {
           sku,
           name: data.name,
@@ -222,6 +244,7 @@ export class ProductsService {
           manufacturerRef: data.manufacturerRef,
           color: data.color,
           cost: data.cost,
+          engravingCost: data.engravingCost,
           rrp: data.rrp,
           b2bPrice: data.b2bPrice,
           active: data.active ?? true,
@@ -234,14 +257,32 @@ export class ProductsService {
             : undefined,
         },
       });
+      await this.auditService.log({
+        userId,
+        method: "POST",
+        path: "/products/quick",
+        action: "price_change",
+        entity: "product",
+        entityId: created.sku,
+        requestBody: {
+          sku: created.sku,
+          cost: created.cost,
+          engravingCost: created.engravingCost,
+          rrp: created.rrp,
+          b2bPrice: created.b2bPrice,
+        },
+        statusCode: 201,
+      });
+      return created;
     });
   }
 
-  async update(sku: string, data: UpdateProductDto) {
+  async update(sku: string, data: UpdateProductDto, userId?: number) {
     return this.prisma.$transaction(async (tx) => {
-      await this.getBySku(sku);
+      const existing = await this.prisma.product.findUnique({ where: { sku } });
+      if (!existing) throw new NotFoundException("Product not found");
       await this.ensureCategories(tx, data.categoryIds);
-      return tx.product.update({
+      const updated = await tx.product.update({
         where: { sku },
         data: {
           name: data.name,
@@ -251,6 +292,7 @@ export class ProductsService {
           manufacturerRef: data.manufacturerRef,
           color: data.color,
           cost: data.cost,
+          engravingCost: data.engravingCost,
           rrp: data.rrp,
           b2bPrice: data.b2bPrice,
           active: data.active,
@@ -264,6 +306,37 @@ export class ProductsService {
             : undefined,
         },
       });
+      const priceChanged =
+        data.cost !== undefined ||
+        data.engravingCost !== undefined ||
+        data.rrp !== undefined ||
+        data.b2bPrice !== undefined;
+      if (priceChanged) {
+        await this.auditService.log({
+          userId,
+          method: "PUT",
+          path: `/products/${sku}`,
+          action: "price_change",
+          entity: "product",
+          entityId: sku,
+          requestBody: {
+            before: {
+              cost: existing.cost,
+              engravingCost: existing.engravingCost,
+              rrp: existing.rrp,
+              b2bPrice: existing.b2bPrice,
+            },
+            after: {
+              cost: updated.cost,
+              engravingCost: updated.engravingCost,
+              rrp: updated.rrp,
+              b2bPrice: updated.b2bPrice,
+            },
+          },
+          statusCode: 200,
+        });
+      }
+      return updated;
     });
   }
 
@@ -283,14 +356,14 @@ export class ProductsService {
     });
   }
 
-  async convertToStandard(sku: string, data: ConvertToStandardDto) {
+  async convertToStandard(sku: string, data: ConvertToStandardDto, userId?: number) {
     const product = await this.getBySku(sku);
     if (product.type !== "quick") {
       throw new BadRequestException("Product is already standard");
     }
     return this.prisma.$transaction(async (tx) => {
       await this.ensureCategories(tx, data.categoryIds);
-      return tx.product.update({
+      const updated = await tx.product.update({
         where: { sku },
         data: {
           type: "standard",
@@ -301,6 +374,7 @@ export class ProductsService {
           manufacturerRef: data.manufacturerRef ?? product.manufacturerRef,
           color: data.color ?? product.color,
           cost: data.cost ?? product.cost,
+          engravingCost: data.engravingCost ?? product.engravingCost,
           rrp: data.rrp ?? product.rrp,
           b2bPrice: data.b2bPrice ?? product.b2bPrice,
           active: data.active ?? product.active,
@@ -314,6 +388,37 @@ export class ProductsService {
             : undefined,
         },
       });
+      const priceChanged =
+        data.cost !== undefined ||
+        data.engravingCost !== undefined ||
+        data.rrp !== undefined ||
+        data.b2bPrice !== undefined;
+      if (priceChanged) {
+        await this.auditService.log({
+          userId,
+          method: "POST",
+          path: `/products/${sku}/convert-to-standard`,
+          action: "price_change",
+          entity: "product",
+          entityId: sku,
+          requestBody: {
+            before: {
+              cost: product.cost,
+              engravingCost: product.engravingCost,
+              rrp: product.rrp,
+              b2bPrice: product.b2bPrice,
+            },
+            after: {
+              cost: updated.cost,
+              engravingCost: updated.engravingCost,
+              rrp: updated.rrp,
+              b2bPrice: updated.b2bPrice,
+            },
+          },
+          statusCode: 200,
+        });
+      }
+      return updated;
     });
   }
 

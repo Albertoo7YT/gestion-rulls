@@ -38,12 +38,31 @@ export class ReportsController {
     return this.reportsService.salesByMonth(query);
   }
 
+  @Get("summary")
+  summary(@Query() query: ReportsQueryDto) {
+    return this.reportsService.summary(query);
+  }
+
+  @Get("deposits")
+  deposits(@Query() query: ReportsQueryDto) {
+    return this.reportsService.depositsSummary(query);
+  }
+
+  @Get("cash-closures")
+  cashClosures(@Query() query: ReportsQueryDto) {
+    return this.reportsService.listClosures(query);
+  }
+
   @Get("moves/:id/ticket")
   async moveTicket(@Param("id", ParseIntPipe) id: number, @Res() res: Response) {
     const data = await this.reportsService.getMoveReportData(id);
-    const html = this.reportsService.renderMoveReportHtml(data, "ticket");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(html);
+    const pdf = await this.reportsService.renderMoveReportPdf(data, "ticket");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="ticket-${data.number}.pdf"`,
+    );
+    res.send(pdf);
   }
 
   @Get("moves/:id/invoice")
@@ -52,8 +71,27 @@ export class ReportsController {
     @Res() res: Response,
   ) {
     const data = await this.reportsService.getMoveReportData(id);
-    const html = this.reportsService.renderMoveReportHtml(data, "invoice");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(html);
+    const pdf = await this.reportsService.renderMoveReportPdf(data, "invoice");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="invoice-${data.number}.pdf"`,
+    );
+    res.send(pdf);
+  }
+
+  @Get("moves/:id/delivery")
+  async moveDelivery(
+    @Param("id", ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const data = await this.reportsService.getMoveReportData(id);
+    const pdf = await this.reportsService.renderMoveReportPdf(data, "delivery");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="albaran-${data.number}.pdf"`,
+    );
+    res.send(pdf);
   }
 }

@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -36,6 +37,16 @@ export class PosSaleDto {
   @IsOptional()
   @IsString()
   paymentMethod?: string;
+
+  @IsOptional()
+  @IsIn(["pending", "partial", "paid"])
+  paymentStatus?: "pending" | "partial" | "paid";
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  paidAmount?: number;
 
   @IsOptional()
   @IsString()

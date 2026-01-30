@@ -6,6 +6,8 @@ import { api } from "../../lib/api";
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [showOtp, setShowOtp] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -16,16 +18,39 @@ export default function LoginPage() {
     try {
       const result = await api.post<{
         accessToken: string;
-        user: { id: number; email: string; username: string; role: string };
+        user: {
+          id: number;
+          email: string;
+          username: string;
+          role: string;
+          twoFactorEnabled?: boolean;
+        };
       }>("/auth/login", {
         identifier,
         password,
+        otp: otp || undefined,
       });
       localStorage.setItem("auth_token", result.accessToken);
       localStorage.setItem("auth_user", JSON.stringify(result.user));
       window.location.href = "/";
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err));
+      const raw = err instanceof Error ? err.message : String(err);
+      let message = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.message) {
+          message = Array.isArray(parsed.message)
+            ? parsed.message.join(", ")
+            : String(parsed.message);
+        }
+      } catch {
+        // keep raw text
+      }
+      setStatus(message);
+      const lower = message.toLowerCase();
+      if (lower.includes("two-factor") || lower.includes("2fa") || lower.includes("otp")) {
+        setShowOtp(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -57,6 +82,18 @@ export default function LoginPage() {
             autoComplete="current-password"
           />
         </label>
+        {(showOtp || otp) && (
+          <label className="stack">
+            <span className="muted">Codigo 2FA</span>
+            <input
+              className="input"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="codigo 2FA"
+              autoComplete="one-time-code"
+            />
+          </label>
+        )}
         <button disabled={loading}>
           {loading ? "Entrando..." : "Entrar"}
         </button>
