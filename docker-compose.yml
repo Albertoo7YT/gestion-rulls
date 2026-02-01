@@ -40,7 +40,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     container_name: pdg_web
     restart: unless-stopped
     depends_on:
@@ -48,7 +48,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://api:3001}
       NEXT_PUBLIC_AUTH_BYPASS: "false"
     ports:
       - "3000:3000"

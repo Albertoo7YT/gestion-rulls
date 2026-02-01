@@ -8,6 +8,8 @@ async function bootstrap() {
   const corsOrigins = [
     "http://localhost:3000",
     "http://192.168.1.25:3000",
+    "https://panel.rulls.eu",
+    "http://panel.rulls.eu",
   ];
   app.enableCors({ origin: corsOrigins });
   app.useGlobalFilters(new HttpErrorFilter());
