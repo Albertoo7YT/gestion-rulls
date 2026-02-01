@@ -39,7 +39,7 @@ export default function SettingsPage() {
   function getAuthHeader() {
     const token =
       typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
   }
 
   async function loadMethods() {
@@ -103,16 +103,11 @@ export default function SettingsPage() {
     const form = new FormData();
     form.append("file", importFile);
     try {
-      const res = await fetch(
-        `${apiBase}/import?mode=${importMode}`,
-        {
-          method: "POST",
-          body: form,
-          headers: {
-            ...getAuthHeader(),
-          },
-        },
-      );
+      const res = await fetch(`${apiBase}/import?mode=${importMode}`, {
+        method: "POST",
+        body: form,
+        headers: getAuthHeader(),
+      });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || res.statusText);
@@ -128,9 +123,7 @@ export default function SettingsPage() {
   async function downloadFile(url: string, filename: string) {
     try {
       const res = await fetch(url, {
-        headers: {
-          ...getAuthHeader(),
-        },
+        headers: getAuthHeader(),
       });
       if (!res.ok) {
         const text = await res.text();

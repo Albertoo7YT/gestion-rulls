@@ -18,11 +18,23 @@ type PriceRule = {
   supplier?: { id: number; name: string } | null;
 };
 
-const emptyForm = {
+type PricingForm = {
+  name: string;
+  target: "public" | "b2b";
+  scope: "all" | "category" | "supplier";
+  type: "percent" | "fixed";
+  value: string;
+  priority: string;
+  active: boolean;
+  categoryId: string;
+  supplierId: string;
+};
+
+const emptyForm: PricingForm = {
   name: "",
-  target: "public" as const,
-  scope: "all" as const,
-  type: "percent" as const,
+  target: "public",
+  scope: "all",
+  type: "percent",
   value: "",
   priority: "100",
   active: true,

@@ -33,12 +33,20 @@ type Accessory = {
   price: number | null;
   active: boolean;
 };
+type Location = {
+  id: number;
+  name: string;
+  active: boolean;
+};
 
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accessories, setAccessories] = useState<Accessory[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [stockLocationId, setStockLocationId] = useState<number | "">("");
+  const [stockBySku, setStockBySku] = useState<Record<string, number>>({});
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("name-asc");
   const [quickForm, setQuickForm] = useState({
@@ -82,6 +90,9 @@ export default function ProductsPage() {
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
   const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(false);
+  const [stockImportMode, setStockImportMode] = useState<"add" | "replace">(
+    "add",
+  );
   const [accessoryForm, setAccessoryForm] = useState({
     name: "",
     cost: "",
@@ -105,9 +116,9 @@ export default function ProductsPage() {
         case "sku-desc":
           return a.sku.localeCompare(b.sku) * -1;
         case "stock-asc":
-          return (a.stock ?? 0) - (b.stock ?? 0);
+          return (stockBySku[a.sku] ?? a.stock ?? 0) - (stockBySku[b.sku] ?? b.stock ?? 0);
         case "stock-desc":
-          return (b.stock ?? 0) - (a.stock ?? 0);
+          return (stockBySku[b.sku] ?? b.stock ?? 0) - (stockBySku[a.sku] ?? a.stock ?? 0);
         case "pvp-asc":
           return (a.rrp ?? 0) - (b.rrp ?? 0);
         case "pvp-desc":
@@ -117,7 +128,7 @@ export default function ProductsPage() {
       }
     });
     return sorted;
-  }, [products, search, sortBy]);
+  }, [products, search, sortBy, stockBySku]);
 
   const selectedCount = selectedSkus.size;
   const allFilteredSelected =
@@ -188,11 +199,44 @@ export default function ProductsPage() {
     setAccessories(data);
   }
 
+  async function loadLocations() {
+    const data = await api.get<Location[]>("/locations");
+    const active = data.filter((loc) => loc.active);
+    setLocations(active);
+    if (active.length > 0 && stockLocationId === "") {
+      setStockLocationId(active[0].id);
+    }
+  }
+
+  async function loadStockForLocation(locationId: number) {
+    const rows = await api.get<
+      { sku: string; quantity: number; name: string | null }[]
+    >(`/stock?locationId=${locationId}`);
+    const map: Record<string, number> = {};
+    for (const row of rows) {
+      map[row.sku] = row.quantity;
+    }
+    setStockBySku(map);
+  }
+
   useEffect(() => {
-    Promise.all([loadProducts(), loadCategories(), loadAccessories()]).catch((err) =>
-      setStatus(err.message),
-    );
+    Promise.all([
+      loadProducts(),
+      loadCategories(),
+      loadAccessories(),
+      loadLocations(),
+    ]).catch((err) => setStatus(err.message));
   }, []);
+
+  useEffect(() => {
+    if (typeof stockLocationId === "number") {
+      loadStockForLocation(stockLocationId).catch((err) =>
+        setStatus(err.message),
+      );
+    } else {
+      setStockBySku({});
+    }
+  }, [stockLocationId]);
 
   async function createQuick() {
     setStatus(null);
@@ -334,6 +378,13 @@ export default function ProductsPage() {
     return Number.isFinite(num) ? num : undefined;
   }
 
+  function parseCsvNumber(value?: string) {
+    if (!value) return undefined;
+    const normalized = value.replace(/\s/g, "").replace(",", ".");
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : undefined;
+  }
+
   async function createStandard() {
     setStatus(null);
     if (!standardForm.sku.trim() || !standardForm.name.trim()) return;
@@ -415,10 +466,10 @@ export default function ProductsPage() {
         description: row.description?.trim() || undefined,
         manufacturerRef: row.manufacturerRef?.trim() || undefined,
         color: row.color?.trim() || undefined,
-        cost: row.cost ? Number(row.cost) : undefined,
-        engravingCost: row.engravingCost ? Number(row.engravingCost) : undefined,
-        rrp: row.rrp ? Number(row.rrp) : undefined,
-        b2bPrice: row.b2bPrice ? Number(row.b2bPrice) : undefined,
+        cost: parseCsvNumber(row.cost),
+        engravingCost: parseCsvNumber(row.engravingCost),
+        rrp: parseCsvNumber(row.rrp),
+        b2bPrice: parseCsvNumber(row.b2bPrice),
         active: row.active ? row.active !== "false" : true,
         categoryIds: parseCategoryIds(row.categoryIds),
       };
@@ -429,9 +480,7 @@ export default function ProductsPage() {
       }
       if (!name) {
         if (sku && existingSkus.has(sku)) {
-          const updatePayload = { ...payload };
-          delete updatePayload.sku;
-          delete updatePayload.name;
+          const { sku: _sku, name: _name, ...updatePayload } = payload;
           if (Object.keys(updatePayload).length > 0) {
             await api.put(`/products/${encodeURIComponent(sku)}`, updatePayload);
             updated += 1;
@@ -470,24 +519,88 @@ export default function ProductsPage() {
       string,
       { sku: string; quantity: number; unitCost?: number }[]
     > = {};
+    const knownSkus = new Set(products.map((p) => p.sku));
+    let skippedMissing = 0;
+    let skippedInvalid = 0;
+    let totalRows = 0;
     for (const row of rows) {
+      totalRows += 1;
       const locationId = row.locationId?.trim();
       const sku = row.sku?.trim();
-      const quantity = Number(row.quantity);
-      if (!locationId || !sku || !Number.isFinite(quantity)) continue;
-      const unitCost = row.unitCost ? Number(row.unitCost) : undefined;
+      const quantity = Number((row.quantity ?? "").replace(",", "."));
+      if (!locationId || !sku || !Number.isFinite(quantity) || quantity < 1) {
+        skippedInvalid += 1;
+        continue;
+      }
+      if (!knownSkus.has(sku)) {
+        skippedMissing += 1;
+        continue;
+      }
+      const unitCost = parseCsvNumber(row.unitCost);
       if (!grouped[locationId]) grouped[locationId] = [];
       grouped[locationId].push({ sku, quantity, unitCost });
     }
 
     for (const [locationId, lines] of Object.entries(grouped)) {
-      await api.post("/moves/purchase", {
-        toId: Number(locationId),
-        lines,
-      });
+      const locationIdNum = Number(locationId);
+      if (stockImportMode === "add") {
+        await api.post("/moves/purchase", {
+          toId: locationIdNum,
+          lines,
+        });
+        continue;
+      }
+
+      const currentRows = await api.get<{ sku: string; quantity: number }[]>(
+        `/stock?locationId=${locationIdNum}`,
+      );
+      const currentMap = new Map(
+        currentRows.map((row) => [row.sku, row.quantity]),
+      );
+      const targetMap = new Map<string, { quantity: number; unitCost?: number }>();
+      for (const line of lines) {
+        const existing = targetMap.get(line.sku);
+        if (existing) {
+          existing.quantity += line.quantity;
+          if (line.unitCost != null) existing.unitCost = line.unitCost;
+        } else {
+          targetMap.set(line.sku, { quantity: line.quantity, unitCost: line.unitCost });
+        }
+      }
+
+      const inLines: { sku: string; quantity: number; unitCost?: number }[] = [];
+      const outLines: { sku: string; quantity: number; unitCost?: number }[] = [];
+      for (const [sku, target] of targetMap) {
+        const currentQty = currentMap.get(sku) ?? 0;
+        const diff = target.quantity - currentQty;
+        if (diff > 0) {
+          inLines.push({ sku, quantity: diff, unitCost: target.unitCost });
+        } else if (diff < 0) {
+          outLines.push({ sku, quantity: Math.abs(diff), unitCost: target.unitCost });
+        }
+      }
+
+      if (inLines.length) {
+        await api.post("/moves/adjust", {
+          locationId: locationIdNum,
+          direction: "in",
+          reference: "CSV-REPLACE",
+          notes: "Ajuste por importacion CSV",
+          lines: inLines,
+        });
+      }
+      if (outLines.length) {
+        await api.post("/moves/adjust", {
+          locationId: locationIdNum,
+          direction: "out",
+          reference: "CSV-REPLACE",
+          notes: "Ajuste por importacion CSV",
+          lines: outLines,
+        });
+      }
     }
     setImportStatus(
-      `Importados ${Object.keys(grouped).length} movimientos de stock.`,
+      `Procesadas ${totalRows} filas. ${Object.keys(grouped).length} almacenes. Omitidas ${skippedMissing} filas por SKU inexistente y ${skippedInvalid} por cantidad invalida.`,
     );
   }
 
@@ -959,6 +1072,27 @@ export default function ProductsPage() {
             onImport={importStockCsv}
             onStatus={setImportStatus}
           />
+          <div className="row">
+            <span className="muted">Modo stock</span>
+            <label className="row">
+              <input
+                type="radio"
+                name="stock-import-mode"
+                checked={stockImportMode === "add"}
+                onChange={() => setStockImportMode("add")}
+              />
+              Sumar
+            </label>
+            <label className="row">
+              <input
+                type="radio"
+                name="stock-import-mode"
+                checked={stockImportMode === "replace"}
+                onChange={() => setStockImportMode("replace")}
+              />
+              Reemplazar
+            </label>
+          </div>
           {importStatus && <p className="muted">{importStatus}</p>}
         </div>
       )}
@@ -989,6 +1123,23 @@ export default function ProductsPage() {
               <option value="stock-asc">Stock (bajo)</option>
               <option value="pvp-desc">PVP (alto)</option>
               <option value="pvp-asc">PVP (bajo)</option>
+            </select>
+          </label>
+          <label className="stack">
+            <span className="muted">Stock (almacen)</span>
+            <select
+              className="input"
+              value={stockLocationId}
+              onChange={(e) =>
+                setStockLocationId(e.target.value ? Number(e.target.value) : "")
+              }
+            >
+              {locations.length === 0 && <option value="">Sin almacenes</option>}
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
             </select>
           </label>
           <button className="secondary" onClick={loadProducts}>
@@ -1074,7 +1225,9 @@ export default function ProductsPage() {
                   <div className="muted">Ref: {p.manufacturerRef}</div>
                 )}
                 <div className="product-meta">
-                  <span>Stock: {p.stock ?? 0}</span>
+                  <span>
+                    Stock: {stockBySku[p.sku] ?? p.stock ?? 0}
+                  </span>
                   <span>PVP: {p.rrp ?? "-"}</span>
                   <span>B2B: {p.b2bPrice ?? "-"}</span>
                   <span>

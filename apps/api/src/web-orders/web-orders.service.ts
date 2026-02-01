@@ -10,6 +10,8 @@ import { PrismaService } from "../prisma/prisma.service";
 export class WebOrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly webCutoffDate = new Date("2026-01-01T00:00:00.000Z");
+
   async listOrders() {
     const orders = await this.prisma.webOrder.findMany({
       orderBy: { createdAtWoo: "desc" },
@@ -31,7 +33,8 @@ export class WebOrdersService {
     return orders.map((order) => {
       const refs = this.getWebReferenceCandidates(order);
       const hasMove = refs.some((ref) => moveRefs.has(ref));
-      return { ...order, hasMove };
+      const isHistorical = order.createdAtWoo < this.webCutoffDate;
+      return { ...order, hasMove, isHistorical };
     });
   }
 
@@ -47,8 +50,10 @@ export class WebOrdersService {
     if (!order) {
       throw new NotFoundException("Order not found");
     }
-    const hasMove = (await this.findExistingMoveForOrder(this.prisma, order)) != null;
-    return { ...order, hasMove };
+    const hasMove =
+      (await this.findExistingMoveForOrder(this.prisma, order)) != null;
+    const isHistorical = order.createdAtWoo < this.webCutoffDate;
+    return { ...order, hasMove, isHistorical };
   }
 
   async assignWarehouse(wooOrderId: string, warehouseId: number) {
@@ -86,6 +91,11 @@ export class WebOrdersService {
 
       if (!order) {
         throw new NotFoundException("Order not found");
+      }
+      if (order.createdAtWoo < this.webCutoffDate) {
+        throw new BadRequestException(
+          "Order is historical (before 2026-01-01) and cannot be processed",
+        );
       }
       if (order.processedAt) {
         const existingMove = await this.findExistingMoveForOrder(tx, order);

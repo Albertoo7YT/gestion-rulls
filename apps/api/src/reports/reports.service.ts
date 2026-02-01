@@ -1085,24 +1085,24 @@ export class ReportsService {
 
     if (query.channel === "WEB") {
       const webWhere: Prisma.WebOrderWhereInput = {};
-      if (query.from || query.to) {
-        const createdAtWoo: Prisma.DateTimeFilter = {};
-        if (query.from) {
-          const from = new Date(query.from);
-          if (!Number.isNaN(from.getTime())) {
-            createdAtWoo.gte = from;
-          }
-        }
-        if (query.to) {
-          const to = new Date(query.to);
-          if (!Number.isNaN(to.getTime())) {
-            createdAtWoo.lte = to;
-          }
-        }
-        if (Object.keys(createdAtWoo).length) {
-          webWhere.createdAtWoo = createdAtWoo;
+      const cutoff = new Date("2026-01-01T00:00:00.000Z");
+      let createdAtWoo: Prisma.DateTimeFilter = {};
+      if (query.from) {
+        const from = new Date(query.from);
+        if (!Number.isNaN(from.getTime())) {
+          createdAtWoo.gte = from;
         }
       }
+      if (query.to) {
+        const to = new Date(query.to);
+        if (!Number.isNaN(to.getTime())) {
+          createdAtWoo.lte = to;
+        }
+      }
+      if (!createdAtWoo.gte || createdAtWoo.gte < cutoff) {
+        createdAtWoo.gte = cutoff;
+      }
+      webWhere.createdAtWoo = createdAtWoo;
 
       const webOrders = await this.prisma.webOrder.findMany({
         where: webWhere,

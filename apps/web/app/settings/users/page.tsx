@@ -42,7 +42,7 @@ export default function UsersPage() {
       return;
     }
     QRCode.toDataURL(otpUrl)
-      .then((dataUrl) => setOtpQr(dataUrl))
+      .then((dataUrl: string) => setOtpQr(dataUrl))
       .catch(() => setOtpQr(null));
   }, [otpUrl]);
 

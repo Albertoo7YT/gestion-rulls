@@ -15,6 +15,7 @@ export default function AuthShell({ children }: PropsWithChildren) {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [role, setRole] = useState<string | null>(null);
   const [crmBadge, setCrmBadge] = useState(0);
+  const authBypass = process.env.NEXT_PUBLIC_AUTH_BYPASS === "true";
 
   const openCrm = pathname.startsWith("/crm");
   const openCatalogo =
@@ -50,6 +51,20 @@ export default function AuthShell({ children }: PropsWithChildren) {
   }
 
   useEffect(() => {
+    if (authBypass) {
+      setAuthed(true);
+      setRole("admin");
+      const saved =
+        typeof window !== "undefined" ? localStorage.getItem("theme") : null;
+      if (saved === "light" || saved === "dark") {
+        setTheme(saved);
+        document.documentElement.dataset.theme = saved;
+      } else {
+        document.documentElement.dataset.theme = "dark";
+      }
+      setReady(true);
+      return;
+    }
     const token =
       typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
     setAuthed(Boolean(token));
@@ -74,12 +89,12 @@ export default function AuthShell({ children }: PropsWithChildren) {
       document.documentElement.dataset.theme = "dark";
     }
     setReady(true);
-  }, [pathname]);
+  }, [pathname, authBypass]);
 
   const isLogin = useMemo(() => pathname === "/login", [pathname]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || authBypass) return;
     if (!authed && !isLogin) {
       router.replace("/login");
     }
@@ -105,10 +120,10 @@ export default function AuthShell({ children }: PropsWithChildren) {
         router.replace("/crm/board");
       }
     }
-  }, [authed, isLogin, ready, router, pathname, role]);
+  }, [authed, isLogin, ready, router, pathname, role, authBypass]);
 
   useEffect(() => {
-    if (!ready || !authed || isLogin) return;
+    if (!ready || !authed || isLogin || authBypass) return;
     if (!role || !["admin", "commercial", "store", "warehouse"].includes(role)) {
       setCrmBadge(0);
       return;

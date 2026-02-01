@@ -322,7 +322,7 @@ export default function CrmSegmentsPage() {
                 />
               </label>
               <label className="stack">
-                <span className="muted">Total gastado >=</span>
+                <span className="muted">Total gastado &gt;=</span>
                 <input
                   className="input"
                   type="number"
@@ -336,7 +336,7 @@ export default function CrmSegmentsPage() {
                 />
               </label>
               <label className="stack">
-                <span className="muted">Ticket medio >=</span>
+                <span className="muted">Ticket medio &gt;=</span>
                 <input
                   className="input"
                   type="number"
@@ -350,7 +350,7 @@ export default function CrmSegmentsPage() {
                 />
               </label>
               <label className="stack">
-                <span className="muted">Compras >=</span>
+                <span className="muted">Compras &gt;=</span>
                 <input
                   className="input"
                   type="number"
@@ -364,7 +364,7 @@ export default function CrmSegmentsPage() {
                 />
               </label>
               <label className="stack">
-                <span className="muted">Devoluciones >=</span>
+                <span className="muted">Devoluciones &gt;=</span>
                 <input
                   className="input"
                   type="number"

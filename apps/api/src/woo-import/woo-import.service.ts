@@ -131,8 +131,13 @@ export class WooImportService {
 
     const orders = await this.fetchOrders(dto.includePending === true);
     const results = [];
+    const cutoff = new Date("2026-01-01T00:00:00.000Z");
 
     for (const order of orders) {
+      const createdAtWoo = new Date(order.date_created);
+      if (createdAtWoo < cutoff) {
+        continue;
+      }
       const result = await this.prisma.$transaction(async (tx) => {
         const wooOrderId = String(order.id);
         const existing = await tx.webOrder.findUnique({

@@ -524,7 +524,6 @@ export default function PosPage() {
           const transfer = await api.post<{ id: number }>("/moves/transfer", {
             fromId,
             toId: targetId,
-            reference: payload.reference,
             notes: `DEPOSITO${selectedCustomer ? ` | ${selectedCustomer.name}` : ""}`,
             customerId: selectedCustomer?.id,
             lines: saleLines.map((line) => ({
