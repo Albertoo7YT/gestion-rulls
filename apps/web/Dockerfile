@@ -18,15 +18,15 @@ WORKDIR /app/apps/web
 RUN npm run build
 
 FROM node:20-alpine AS runner
-WORKDIR /app
+WORKDIR /app/apps/web
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/web/.next ./apps/web/.next
-COPY --from=builder /app/apps/web/public ./apps/web/public
-COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
-COPY --from=builder /app/apps/web/next.config.js ./apps/web/next.config.js
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/apps/web/.next ./.next
+COPY --from=builder /app/apps/web/public ./public
+COPY --from=builder /app/apps/web/package.json ./package.json
+COPY --from=builder /app/apps/web/next.config.js ./next.config.js
 
 EXPOSE 3000
-CMD ["npm", "--workspace", "apps/web", "run", "start"]
+CMD ["npm", "run", "start"]
