@@ -1,16 +1,57 @@
-﻿services:
+services:
   db:
     image: postgres:15
     container_name: pdg_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: pdg
-      POSTGRES_USER: pdg
-      POSTGRES_PASSWORD: pdg
+      POSTGRES_DB: ${POSTGRES_DB:-pdg}
+      POSTGRES_USER: ${POSTGRES_USER:-pdg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pdg}
     ports:
       - "5432:5432"
     volumes:
       - pdg_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdg} -d ${POSTGRES_DB:-pdg}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: pdg_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pdg}:${POSTGRES_PASSWORD:-pdg}@db:5432/${POSTGRES_DB:-pdg}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      AUTH_BYPASS: "false"
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    container_name: pdg_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_AUTH_BYPASS: "false"
+    ports:
+      - "3000:3000"
 
 volumes:
   pdg_pgdata:
