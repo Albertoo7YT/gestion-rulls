@@ -34,6 +34,7 @@ export default function WooSettingsPage() {
   });
   const [importLoading, setImportLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportElapsed, setExportElapsed] = useState(0);
   const [testLoading, setTestLoading] = useState(false);
 
   async function loadData() {
@@ -55,6 +56,17 @@ export default function WooSettingsPage() {
   useEffect(() => {
     loadData().catch((err) => setStatus(err.message));
   }, []);
+
+  useEffect(() => {
+    if (!exportLoading) {
+      setExportElapsed(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setExportElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [exportLoading]);
 
   async function saveCredentials() {
     if (!settings) return;
@@ -238,25 +250,6 @@ export default function WooSettingsPage() {
             Woo sync enabled
           </label>
 
-          <div className="stack">
-            <strong>Almacenes para stock Woo</strong>
-            {warehouses.map((w) => (
-              <label className="row" key={w.id}>
-                <input
-                  type="checkbox"
-                  checked={settings.wooStockWarehouseIds.includes(w.id)}
-                  onChange={() => toggleWarehouse(w.id)}
-                />
-                {w.name}
-              </label>
-            ))}
-            <div className="row">
-              <button className="secondary" onClick={saveWooOptions}>
-                Guardar ajustes Woo
-              </button>
-            </div>
-          </div>
-
           <div className="card stack">
             <strong>Importar desde Woo</strong>
             <label className="row">
@@ -374,7 +367,20 @@ export default function WooSettingsPage() {
 
           <div className="card stack">
             <strong>Exportar a Woo</strong>
-            <p className="muted">Stock desde almacenes seleccionados.</p>
+            <p className="muted">Selecciona almacenes y exporta stock.</p>
+            <div className="stack">
+              <strong>Almacenes para stock Woo</strong>
+              {warehouses.map((w) => (
+                <label className="row" key={w.id}>
+                  <input
+                    type="checkbox"
+                    checked={settings.wooStockWarehouseIds.includes(w.id)}
+                    onChange={() => toggleWarehouse(w.id)}
+                  />
+                  {w.name}
+                </label>
+              ))}
+            </div>
             <div className="row">
               <button
                 className="secondary"
@@ -383,7 +389,39 @@ export default function WooSettingsPage() {
               >
                 {exportLoading ? "Exportando..." : "Exportar stock"}
               </button>
+              <button
+                className="secondary"
+                onClick={saveWooOptions}
+                disabled={exportLoading}
+              >
+                Guardar ajustes Woo
+              </button>
             </div>
+            {exportLoading && (
+              <div className="stack">
+                <div
+                  style={{
+                    width: "100%",
+                    height: 8,
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.12)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(95, 8 + exportElapsed * 2)}%`,
+                      height: "100%",
+                      background: "var(--accent)",
+                      transition: "width 0.8s linear",
+                    }}
+                  />
+                </div>
+                <p className="muted">
+                  Exportando stock... {exportElapsed}s
+                </p>
+              </div>
+            )}
           </div>
 
           <p className="muted">
