@@ -241,80 +241,96 @@ export default function ProductsPage() {
   async function createQuick() {
     setStatus(null);
     const name = quickForm.name.trim();
-    if (!name) return;
+    if (!name) {
+      setStatus("El nombre es obligatorio.");
+      return;
+    }
     const extraPhotos = parsePhotoUrls(quickForm.photoUrls);
-    await api.post("/products/quick", {
-      name,
-      sku: quickForm.sku.trim() || undefined,
-      photoUrl:
-        quickForm.photoDataUrl ||
-        quickForm.photoUrl.trim() ||
-        extraPhotos[0] ||
-        undefined,
-      photoUrls: extraPhotos.length ? extraPhotos : undefined,
-      description: quickForm.description.trim() || undefined,
-      manufacturerRef: quickForm.manufacturerRef.trim() || undefined,
-      color: quickForm.color.trim() || undefined,
-      cost: toNumberOrUndefined(quickForm.cost),
-      engravingCost: toNumberOrUndefined(quickForm.engravingCost),
-      rrp: toNumberOrUndefined(quickForm.rrp),
-    });
-    setQuickForm({
-      sku: "",
-      name: "",
-      photoUrl: "",
-      photoDataUrl: "",
-      photoUrls: "",
-      description: "",
-      manufacturerRef: "",
-      color: "",
-      cost: "",
-      engravingCost: "",
-      rrp: "",
-    });
-    await loadProducts();
+    try {
+      await api.post("/products/quick", {
+        name,
+        sku: quickForm.sku.trim() || undefined,
+        photoUrl:
+          quickForm.photoDataUrl ||
+          quickForm.photoUrl.trim() ||
+          extraPhotos[0] ||
+          undefined,
+        photoUrls: extraPhotos.length ? extraPhotos : undefined,
+        description: quickForm.description.trim() || undefined,
+        manufacturerRef: quickForm.manufacturerRef.trim() || undefined,
+        color: quickForm.color.trim() || undefined,
+        cost: toNumberOrUndefined(quickForm.cost),
+        engravingCost: toNumberOrUndefined(quickForm.engravingCost),
+        rrp: toNumberOrUndefined(quickForm.rrp),
+      });
+      setQuickForm({
+        sku: "",
+        name: "",
+        photoUrl: "",
+        photoDataUrl: "",
+        photoUrls: "",
+        description: "",
+        manufacturerRef: "",
+        color: "",
+        cost: "",
+        engravingCost: "",
+        rrp: "",
+      });
+      await loadProducts();
+      setStatus("TMP creado.");
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo crear el TMP.");
+    }
   }
 
   async function createQuickFull() {
     setStatus(null);
-    if (!standardForm.name.trim()) return;
+    if (!standardForm.name.trim()) {
+      setStatus("El nombre es obligatorio.");
+      return;
+    }
     const extraPhotos = parsePhotoUrls(standardForm.photoUrls);
-    await api.post("/products/quick", {
-      name: standardForm.name.trim(),
-      sku: standardForm.sku.trim() || undefined,
-      photoUrl:
-        standardForm.photoDataUrl ||
-        standardForm.photoUrl.trim() ||
-        extraPhotos[0] ||
-        undefined,
-      photoUrls: extraPhotos.length ? extraPhotos : undefined,
-      description: standardForm.description.trim() || undefined,
-      manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
-      color: standardForm.color.trim() || undefined,
-      cost: toNumberOrUndefined(standardForm.cost),
-      engravingCost: toNumberOrUndefined(standardForm.engravingCost),
-      rrp: toNumberOrUndefined(standardForm.rrp),
-      b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
-      active: standardForm.active,
-      categoryIds: standardForm.categoryIds,
-    });
-    setStandardForm({
-      sku: "",
-      name: "",
-      photoUrl: "",
-      photoDataUrl: "",
-      photoUrls: "",
-      description: "",
-      manufacturerRef: "",
-      color: "",
-      cost: "",
-      engravingCost: "",
-      rrp: "",
-      b2bPrice: "",
-      active: true,
-      categoryIds: [],
-    });
-    await loadProducts();
+    try {
+      await api.post("/products/quick", {
+        name: standardForm.name.trim(),
+        sku: standardForm.sku.trim() || undefined,
+        photoUrl:
+          standardForm.photoDataUrl ||
+          standardForm.photoUrl.trim() ||
+          extraPhotos[0] ||
+          undefined,
+        photoUrls: extraPhotos.length ? extraPhotos : undefined,
+        description: standardForm.description.trim() || undefined,
+        manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
+        color: standardForm.color.trim() || undefined,
+        cost: toNumberOrUndefined(standardForm.cost),
+        engravingCost: toNumberOrUndefined(standardForm.engravingCost),
+        rrp: toNumberOrUndefined(standardForm.rrp),
+        b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
+        active: standardForm.active,
+        categoryIds: standardForm.categoryIds,
+      });
+      setStandardForm({
+        sku: "",
+        name: "",
+        photoUrl: "",
+        photoDataUrl: "",
+        photoUrls: "",
+        description: "",
+        manufacturerRef: "",
+        color: "",
+        cost: "",
+        engravingCost: "",
+        rrp: "",
+        b2bPrice: "",
+        active: true,
+        categoryIds: [],
+      });
+      await loadProducts();
+      setStatus("TMP creado.");
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo crear el TMP.");
+    }
   }
 
   function startAccessoryCreate() {
@@ -387,44 +403,52 @@ export default function ProductsPage() {
 
   async function createStandard() {
     setStatus(null);
-    if (!standardForm.sku.trim() || !standardForm.name.trim()) return;
+    if (!standardForm.sku.trim() || !standardForm.name.trim()) {
+      setStatus("SKU y nombre son obligatorios.");
+      return;
+    }
     const extraPhotos = parsePhotoUrls(standardForm.photoUrls);
-    await api.post("/products", {
-      sku: standardForm.sku.trim(),
-      name: standardForm.name.trim(),
-      photoUrl:
-        standardForm.photoDataUrl ||
-        standardForm.photoUrl.trim() ||
-        extraPhotos[0] ||
-        undefined,
-      photoUrls: extraPhotos.length ? extraPhotos : undefined,
-      description: standardForm.description.trim() || undefined,
-      manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
-      color: standardForm.color.trim() || undefined,
-      cost: toNumberOrUndefined(standardForm.cost),
-      engravingCost: toNumberOrUndefined(standardForm.engravingCost),
-      rrp: toNumberOrUndefined(standardForm.rrp),
-      b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
-      active: standardForm.active,
-      categoryIds: standardForm.categoryIds,
-    });
-    setStandardForm({
-      sku: "",
-      name: "",
-      photoUrl: "",
-      photoDataUrl: "",
-      photoUrls: "",
-      description: "",
-      manufacturerRef: "",
-      color: "",
-      cost: "",
-      engravingCost: "",
-      rrp: "",
-      b2bPrice: "",
-      active: true,
-      categoryIds: [],
-    });
-    await loadProducts();
+    try {
+      await api.post("/products", {
+        sku: standardForm.sku.trim(),
+        name: standardForm.name.trim(),
+        photoUrl:
+          standardForm.photoDataUrl ||
+          standardForm.photoUrl.trim() ||
+          extraPhotos[0] ||
+          undefined,
+        photoUrls: extraPhotos.length ? extraPhotos : undefined,
+        description: standardForm.description.trim() || undefined,
+        manufacturerRef: standardForm.manufacturerRef.trim() || undefined,
+        color: standardForm.color.trim() || undefined,
+        cost: toNumberOrUndefined(standardForm.cost),
+        engravingCost: toNumberOrUndefined(standardForm.engravingCost),
+        rrp: toNumberOrUndefined(standardForm.rrp),
+        b2bPrice: toNumberOrUndefined(standardForm.b2bPrice),
+        active: standardForm.active,
+        categoryIds: standardForm.categoryIds,
+      });
+      setStandardForm({
+        sku: "",
+        name: "",
+        photoUrl: "",
+        photoDataUrl: "",
+        photoUrls: "",
+        description: "",
+        manufacturerRef: "",
+        color: "",
+        cost: "",
+        engravingCost: "",
+        rrp: "",
+        b2bPrice: "",
+        active: true,
+        categoryIds: [],
+      });
+      await loadProducts();
+      setStatus("Producto creado.");
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo crear el producto.");
+    }
   }
 
   function parseCategoryIds(value?: string) {
