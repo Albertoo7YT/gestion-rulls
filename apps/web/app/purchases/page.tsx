@@ -71,26 +71,44 @@ export default function PurchasesPage() {
   const [receiveNotes, setReceiveNotes] = useState("");
 
   const normalizeSku = (value: string) =>
-    value.trim().replace(/^#/, "").toLowerCase();
+    value.trim().replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
+  const stripLeadingZeros = (value: string) => value.replace(/^0+(?=\d)/, "");
+
+  const normalizeRefLike = (value: string) => {
+    const normalized = normalizeSku(value);
+    const ruMatch = normalized.match(/^RU(\d+)$/);
+    if (ruMatch) return `RU${stripLeadingZeros(ruMatch[1])}`;
+    if (/^\d+$/.test(normalized)) return stripLeadingZeros(normalized);
+    return normalized;
+  };
 
   const getSkuNumber = (value: string) => {
-    const match = normalizeSku(value).match(/(\d+)$/);
-    return match ? match[1] : "";
+    const match = normalizeRefLike(value).match(/(\d+)$/);
+    return match ? stripLeadingZeros(match[1]) : "";
   };
 
   const findProductBySku = (value: string) => {
-    const needle = normalizeSku(value);
+    const needle = normalizeRefLike(value);
     if (!needle) return null;
-    return (
-      products.find((p) => normalizeSku(p.sku) === needle) ?? null
+    return products.find((p) => normalizeRefLike(p.sku) === needle) ?? null;
+  };
+
+  const findProductByManufacturerRef = (value: string) => {
+    const needle = normalizeRefLike(value);
+    if (!needle) return null;
+    const matches = products.filter(
+      (p) => normalizeRefLike(p.manufacturerRef ?? "") === needle,
     );
+    if (matches.length === 1) return matches[0];
+    return null;
   };
 
   const findProductByPrefix = (value: string) => {
-    const needle = normalizeSku(value);
+    const needle = normalizeRefLike(value);
     if (!needle) return null;
     const matches = products.filter((p) =>
-      normalizeSku(p.sku).startsWith(needle),
+      normalizeRefLike(p.sku).startsWith(needle),
     );
     if (matches.length === 1) return matches[0];
     return null;
@@ -99,7 +117,10 @@ export default function PurchasesPage() {
   const findProductByNumber = (value: string) => {
     const trimmed = value.trim();
     if (!/^\d+$/.test(trimmed)) return null;
-    const matches = products.filter((p) => getSkuNumber(p.sku) === trimmed);
+    const normalizedNumber = stripLeadingZeros(trimmed);
+    const matches = products.filter(
+      (p) => getSkuNumber(p.sku) === normalizedNumber,
+    );
     if (matches.length === 1) return matches[0];
     return null;
   };
@@ -107,6 +128,7 @@ export default function PurchasesPage() {
   const selectedProduct = useMemo(() => {
     return (
       findProductBySku(lineDraft.sku) ||
+      findProductByManufacturerRef(lineDraft.sku) ||
       findProductByNumber(lineDraft.sku) ||
       findProductByPrefix(lineDraft.sku)
     );
@@ -121,13 +143,17 @@ export default function PurchasesPage() {
   };
 
   const filteredProducts = useMemo(() => {
-    const term = productSearch.trim().toLowerCase();
+    const term = productSearch.trim();
     if (!term) return products;
-    return products.filter((p) =>
-      `${p.sku} ${p.name} ${p.manufacturerRef ?? ""} ${p.color ?? ""}`
-        .toLowerCase()
-        .includes(term),
-    );
+    const termText = term.toLowerCase();
+    const termRef = normalizeRefLike(term);
+    return products.filter((p) => {
+      const textHaystack =
+        `${p.sku} ${p.name} ${p.manufacturerRef ?? ""} ${p.color ?? ""}`.toLowerCase();
+      if (textHaystack.includes(termText)) return true;
+      const refHaystack = `${normalizeRefLike(p.sku)} ${normalizeRefLike(p.manufacturerRef ?? "")}`;
+      return termRef.length > 0 && refHaystack.includes(termRef);
+    });
   }, [productSearch, products]);
 
   useEffect(() => {
