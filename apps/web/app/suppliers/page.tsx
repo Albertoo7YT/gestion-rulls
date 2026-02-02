@@ -44,13 +44,24 @@ export default function SuppliersPage() {
       return;
     }
     setStatus(null);
-    if (editingId) {
-      await api.put(`/suppliers/${editingId}`, form);
-    } else {
-      await api.post("/suppliers", form);
+    const payload = {
+      name: form.name.trim(),
+      taxId: form.taxId.trim() || undefined,
+      email: form.email.trim() || undefined,
+      phone: form.phone.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+    };
+    try {
+      if (editingId) {
+        await api.put(`/suppliers/${editingId}`, payload);
+      } else {
+        await api.post("/suppliers", payload);
+      }
+      await refresh();
+      resetForm();
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo guardar el proveedor.");
     }
-    await refresh();
-    resetForm();
   }
 
   async function removeSupplier(id: number) {
