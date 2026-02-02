@@ -87,6 +87,7 @@ export default function ProductsPage() {
   const [editingSaving, setEditingSaving] = useState(false);
   const [editingAccessory, setEditingAccessory] = useState<Accessory | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [quickCreating, setQuickCreating] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [selectedSkus, setSelectedSkus] = useState<Set<string>>(new Set());
   const [onlyUpdateExisting, setOnlyUpdateExisting] = useState(false);
@@ -239,6 +240,7 @@ export default function ProductsPage() {
   }, [stockLocationId]);
 
   async function createQuick() {
+    if (quickCreating) return;
     setStatus(null);
     const name = quickForm.name.trim();
     if (!name) {
@@ -246,6 +248,7 @@ export default function ProductsPage() {
       return;
     }
     const extraPhotos = parsePhotoUrls(quickForm.photoUrls);
+    setQuickCreating(true);
     try {
       await api.post("/products/quick", {
         name,
@@ -280,6 +283,8 @@ export default function ProductsPage() {
       setStatus("TMP creado.");
     } catch (err: any) {
       setStatus(err?.message ?? "No se pudo crear el TMP.");
+    } finally {
+      setQuickCreating(false);
     }
   }
 
@@ -704,6 +709,12 @@ export default function ProductsPage() {
     setQuickForm({ ...quickForm, photoDataUrl: dataUrl });
   }
 
+  async function handleEditPhotoFile(file: File) {
+    if (!editing) return;
+    const dataUrl = await toDataUrl(file);
+    setEditing({ ...editing, photoUrl: dataUrl });
+  }
+
   return (
     <div className="stack">
       <h2>Productos</h2>
@@ -1049,8 +1060,11 @@ export default function ProductsPage() {
               }
             />
           </label>
-          <button onClick={createQuick}>Crear TMP</button>
+          <button onClick={createQuick} disabled={quickCreating}>
+            {quickCreating ? "Creando..." : "Crear TMP"}
+          </button>
         </div>
+        {status && <p className="muted">{status}</p>}
         </div>
       )}
 
@@ -1463,6 +1477,20 @@ export default function ProductsPage() {
                   setEditing({ ...editing, photoUrl: e.target.value })
                 }
                 placeholder="Foto URL"
+              />
+            </label>
+            <label className="stack">
+              <span className="muted">Foto (camara/archivo)</span>
+              <input
+                className="input"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  await handleEditPhotoFile(file);
+                }}
               />
             </label>
             <label className="stack">
