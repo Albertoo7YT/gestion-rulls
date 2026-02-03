@@ -581,21 +581,42 @@ export default function PosPage() {
 
   async function submitTransfer() {
     setStatus(null);
-    if (!fromId || !toId || lines.length === 0) return;
+    if (!fromId) {
+      setStatus("Selecciona almacen origen");
+      return;
+    }
+    if (!toId) {
+      setStatus("Selecciona almacen destino");
+      return;
+    }
+    if (fromId === toId) {
+      setStatus("El almacen origen y destino no pueden ser el mismo");
+      return;
+    }
+    if (lines.length === 0) {
+      setStatus("Anade productos al traspaso");
+      return;
+    }
     const transferLines = lines.filter((line) => (line.quantity ?? 0) > 0);
     if (transferLines.length === 0) {
       setStatus("Introduce al menos una cantidad");
       return;
     }
-    await api.post("/moves/transfer", {
-      fromId,
-      toId,
-      lines: transferLines.map((line) => ({
-        sku: line.sku,
-        quantity: line.quantity ?? 0,
-      })),
-    });
-    setLines([]);
+    try {
+      await api.post("/moves/transfer", {
+        fromId,
+        toId,
+        lines: transferLines.map((line) => ({
+          sku: line.sku,
+          quantity: line.quantity ?? 0,
+        })),
+      });
+      setLines([]);
+      setToast("Traspaso procesado");
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function submitWaste() {
