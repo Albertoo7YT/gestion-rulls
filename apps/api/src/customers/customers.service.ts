@@ -12,12 +12,18 @@ export class CustomersService {
     private readonly auditService: AuditService,
   ) {}
 
-  list(query: ListCustomersQueryDto) {
+  async list(query: ListCustomersQueryDto) {
+    await this.normalizeLegacyTypes();
+    const normalizedType = this.normalizeCustomerType(query.type);
     const search = query.search?.trim();
-    return this.prisma.customer.findMany({
+    const rows = await this.prisma.customer.findMany({
       where: {
         active: true,
-        type: query.type,
+        ...(normalizedType
+          ? normalizedType === "public"
+            ? { type: { in: ["public", "b2c"] } }
+            : { type: normalizedType }
+          : {}),
         ...(search
           ? {
               OR: [
@@ -31,10 +37,19 @@ export class CustomersService {
       },
       orderBy: { name: "asc" },
     });
+    return rows.map((row) => ({
+      ...row,
+      type: this.normalizeCustomerType(row.type) ?? row.type,
+    }));
   }
 
   async create(data: CreateCustomerDto, userId?: number) {
-    const created = await this.prisma.customer.create({ data });
+    const created = await this.prisma.customer.create({
+      data: {
+        ...data,
+        type: this.normalizeCustomerType(data.type) ?? data.type,
+      },
+    });
     await this.ensureRetailLocation(created);
     await this.auditService.log({
       userId,
@@ -54,7 +69,13 @@ export class CustomersService {
     if (!existing || !existing.active) {
       throw new NotFoundException("Customer not found");
     }
-    const updated = await this.prisma.customer.update({ where: { id }, data });
+    const updated = await this.prisma.customer.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(data.type ? { type: this.normalizeCustomerType(data.type) } : {}),
+      },
+    });
     await this.ensureRetailLocation(updated, existing);
     await this.auditService.log({
       userId,
@@ -122,6 +143,20 @@ export class CustomersService {
         phone: customer.phone ?? undefined,
         active: true,
       },
+    });
+  }
+
+  private normalizeCustomerType(type?: string): "b2b" | "public" | undefined {
+    if (!type) return undefined;
+    const normalized = type.toLowerCase();
+    if (normalized === "b2b") return "b2b";
+    return "public";
+  }
+
+  private async normalizeLegacyTypes() {
+    await this.prisma.customer.updateMany({
+      where: { type: "b2c" },
+      data: { type: "public" },
     });
   }
 }

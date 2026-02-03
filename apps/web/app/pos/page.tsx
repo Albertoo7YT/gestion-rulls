@@ -25,7 +25,7 @@ type Location = {
 type Customer = {
   id: number;
   name: string;
-  type: "b2b" | "public";
+  type: "b2b" | "public" | "b2c";
   city?: string | null;
 };
 type PaymentMethod = { id: number; name: string };
@@ -219,6 +219,8 @@ export default function PosPage() {
 
   const channel: "B2B" | "B2C" =
     selectedCustomer?.type === "b2b" ? "B2B" : "B2C";
+  const customerTypeLabel = (type: Customer["type"]) =>
+    type === "b2b" ? "B2B" : "Publico";
 
   useEffect(() => {
     if (channel !== "B2B") {
@@ -1148,7 +1150,7 @@ export default function PosPage() {
                       <option value="">Sin cliente</option>
                       {customers.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.type})
+                          {c.name} ({customerTypeLabel(c.type)})
                         </option>
                       ))}
                     </select>

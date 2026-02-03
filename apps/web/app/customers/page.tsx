@@ -6,7 +6,7 @@ import { api } from "../../lib/api";
 
 type Customer = {
   id: number;
-  type: "b2b" | "public";
+  type: "b2b" | "public" | "b2c";
   name: string;
   taxId?: string | null;
   addressLine1?: string | null;
@@ -44,6 +44,9 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+
+  const typeLabel = (type: Customer["type"]) =>
+    type === "b2b" ? "B2B" : "Publico";
 
   async function load() {
     const query =
@@ -172,7 +175,7 @@ export default function CustomersPage() {
             {customers.map((c) => (
               <tr key={c.id}>
                 <td>{c.id}</td>
-                <td>{c.type}</td>
+                <td>{typeLabel(c.type)}</td>
                 <td>
                   <Link className="link-button" href={`/crm/customers/${c.id}`}>
                     {c.name}

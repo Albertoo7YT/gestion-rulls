@@ -64,6 +64,11 @@ type BoardResponse = {
   statuses: { id: number; name: string }[];
 };
 
+type DepositDetail = {
+  retail?: { id: number; name: string } | null;
+  items: { sku: string; name: string; quantity: number; cost: number }[];
+};
+
 export default function CrmCustomerPage() {
   const params = useParams();
   const customerId = Number(params.id);
@@ -74,6 +79,7 @@ export default function CrmCustomerPage() {
   const [activeTab, setActiveTab] = useState("summary");
   const [status, setStatus] = useState<string | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [depositDetail, setDepositDetail] = useState<DepositDetail | null>(null);
   const [noteContent, setNoteContent] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
   const [moveStatusId, setMoveStatusId] = useState("");
@@ -84,6 +90,8 @@ export default function CrmCustomerPage() {
     unitPrice: "",
     paymentMethod: "",
   });
+  const customerTypeLabel = (type?: string | null) =>
+    type?.toLowerCase() === "b2b" ? "B2B" : "Publico";
 
   useEffect(() => {
     if (!customerId) return;
@@ -102,6 +110,11 @@ export default function CrmCustomerPage() {
         setStatuses(boardResp.statuses as CrmStatus[]);
       })
       .catch((err) => setStatus(err.message));
+
+    api
+      .get<DepositDetail>(`/deposits/customers/${customerId}`)
+      .then((detail) => setDepositDetail(detail))
+      .catch(() => setDepositDetail(null));
   }, [customerId]);
 
   const openTasks = useMemo(
@@ -312,7 +325,7 @@ export default function CrmCustomerPage() {
             <div className="stack">
               <div>
                 <span className="muted">Tipo: </span>
-                <strong>{summary.customer.type ?? "-"}</strong>
+                <strong>{customerTypeLabel(summary.customer.type)}</strong>
               </div>
               <div>
                 <span className="muted">NIF: </span>
@@ -358,6 +371,38 @@ export default function CrmCustomerPage() {
                 </div>
               )}
             </div>
+          </div>
+          <div className="card stack">
+            <strong>Deposito</strong>
+            {depositDetail?.items?.length ? (
+              <>
+                <div className="muted">
+                  Tienda: {depositDetail.retail?.name ?? summary.customer.name}
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Nombre</th>
+                      <th>Uds</th>
+                      <th>Coste</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {depositDetail.items.map((item) => (
+                      <tr key={item.sku}>
+                        <td>{item.sku}</td>
+                        <td>{item.name}</td>
+                        <td>{item.quantity}</td>
+                        <td>{(item.cost * item.quantity).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : (
+              <div className="muted">Sin unidades en deposito.</div>
+            )}
           </div>
         </div>
       )}

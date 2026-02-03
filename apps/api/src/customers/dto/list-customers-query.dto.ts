@@ -6,6 +6,6 @@ export class ListCustomersQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(["b2b", "public"])
-  type?: "b2b" | "public";
+  @IsIn(["b2b", "public", "b2c"])
+  type?: "b2b" | "public" | "b2c";
 }

@@ -2,8 +2,8 @@ import { IsEmail, IsIn, IsOptional, IsString } from "class-validator";
 
 export class UpdateCustomerDto {
   @IsOptional()
-  @IsIn(["b2b", "public"])
-  type?: "b2b" | "public";
+  @IsIn(["b2b", "public", "b2c"])
+  type?: "b2b" | "public" | "b2c";
 
   @IsOptional()
   @IsString()
