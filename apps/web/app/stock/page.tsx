@@ -89,6 +89,11 @@ export default function StockPage() {
     return sorted;
   }, [stock, search]);
 
+  const totalQuantity = useMemo(
+    () => filtered.reduce((acc, row) => acc + row.quantity, 0),
+    [filtered],
+  );
+
   return (
     <div className="stack">
       <h2>Stock</h2>
@@ -153,6 +158,12 @@ export default function StockPage() {
               </tr>
             )}
           </tbody>
+          <tfoot>
+            <tr>
+              <th colSpan={3}>Total</th>
+              <th>{totalQuantity}</th>
+            </tr>
+          </tfoot>
         </table>
       </div>
       {status && <p className="muted">{status}</p>}

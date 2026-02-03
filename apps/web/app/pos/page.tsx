@@ -126,6 +126,7 @@ export default function PosPage() {
   >("paid");
   const [paidAmount, setPaidAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [addToast, setAddToast] = useState<string | null>(null);
   const [giftSale, setGiftSale] = useState(false);
@@ -236,6 +237,21 @@ export default function PosPage() {
     if (value === "") return null;
     const parsed = Number(value);
     return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const extractErrorMessage = (err: unknown) => {
+    const raw = err instanceof Error ? err.message : String(err);
+    try {
+      const parsed = JSON.parse(raw) as
+        | { message?: string | string[] }
+        | undefined;
+      const message = parsed?.message;
+      if (Array.isArray(message)) return message.join(" | ");
+      if (typeof message === "string" && message.trim()) return message;
+    } catch {
+      // ignore JSON parse errors
+    }
+    return raw;
   };
 
   function toggleAddOn(sku: string, accessory: Accessory, checked: boolean) {
@@ -460,6 +476,7 @@ export default function PosPage() {
 
   async function submitSale() {
     setStatus(null);
+    if (submitting) return;
     if (!fromId || lines.length === 0) return;
     const saleLines = lines.filter((line) => (line.quantity ?? 0) > 0);
     if (saleLines.length === 0) {
@@ -496,7 +513,8 @@ export default function PosPage() {
       })),
     };
     let created: { id: number } | null = null;
-      try {
+    setSubmitting(true);
+    try {
         if (depositEnabled) {
           if (!selectedCustomer) {
             setStatus("Selecciona un cliente para deposito.");
@@ -544,7 +562,7 @@ export default function PosPage() {
         created = await api.post<{ id: number }>("/pos/sale", payload);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = extractErrorMessage(err);
       const insufficient =
         message.includes("Insufficient stock") ||
         message.includes("No hay stock");
@@ -557,17 +575,25 @@ export default function PosPage() {
             setStatus("No hay stock suficiente para deposito.");
             return;
           }
-          created = await api.post<{ id: number }>("/pos/sale", {
-            ...payload,
-            allowNegativeStock: true,
-          });
+          try {
+            created = await api.post<{ id: number }>("/pos/sale", {
+              ...payload,
+              allowNegativeStock: true,
+            });
+          } catch (retryErr) {
+            setStatus(extractErrorMessage(retryErr));
+            return;
+          }
         } else {
           setStatus("No hay stock suficiente. Revisa el stock.");
           return;
         }
       } else {
-        throw err;
+        setStatus(message);
+        return;
       }
+    } finally {
+      setSubmitting(false);
     }
     setLines([]);
     setToast("Venta finalizada");
@@ -581,6 +607,7 @@ export default function PosPage() {
 
   async function submitTransfer() {
     setStatus(null);
+    if (submitting) return;
     if (!fromId) {
       setStatus("Selecciona almacen origen");
       return;
@@ -602,6 +629,7 @@ export default function PosPage() {
       setStatus("Introduce al menos una cantidad");
       return;
     }
+    setSubmitting(true);
     try {
       await api.post("/moves/transfer", {
         fromId,
@@ -615,12 +643,15 @@ export default function PosPage() {
       setToast("Traspaso procesado");
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err));
+      setStatus(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function submitWaste() {
     setStatus(null);
+    if (submitting) return;
     if (!fromId || lines.length === 0) return;
     const wasteLines = lines.filter((line) => (line.quantity ?? 0) > 0);
     if (wasteLines.length === 0) {
@@ -631,24 +662,32 @@ export default function PosPage() {
       setStatus("Indica el motivo de la merma/rotura");
       return;
     }
-    await api.post("/moves/adjust", {
-      locationId: fromId,
-      direction: "out",
-      date: wasteDate,
-      notes: `MERMA | ${wasteReason.trim()}`,
-      lines: wasteLines.map((line) => ({
-        sku: line.sku,
-        quantity: line.quantity ?? 0,
-      })),
-    });
-    setLines([]);
-    setWasteReason("");
-    setToast("Merma registrada");
-    setTimeout(() => setToast(null), 3000);
+    setSubmitting(true);
+    try {
+      await api.post("/moves/adjust", {
+        locationId: fromId,
+        direction: "out",
+        date: wasteDate,
+        notes: `MERMA | ${wasteReason.trim()}`,
+        lines: wasteLines.map((line) => ({
+          sku: line.sku,
+          quantity: line.quantity ?? 0,
+        })),
+      });
+      setLines([]);
+      setWasteReason("");
+      setToast("Merma registrada");
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setStatus(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function submitReturn() {
     setStatus(null);
+    if (submitting) return;
     if (!returnOrderId) {
       setStatus("Selecciona un pedido para devolver");
       return;
@@ -667,19 +706,26 @@ export default function PosPage() {
       return;
     }
 
-    const created = await api.post<{ id: number }>("/pos/return", {
-      saleId: returnOrderId,
-      warehouseId: returnWarehouseId,
-      date: returnDate,
-      lines: payloadLines,
-    });
-    setReturnLines((prev) => prev.map((line) => ({ ...line, quantity: 0 })));
-    await loadReturnOrders();
-    setToast("Devoluci\u00f3n registrada");
-    setTimeout(() => setToast(null), 3000);
-    if (created?.id) {
-      setLastReportId(created.id);
-      setLastReportLabel("Devolucion");
+    setSubmitting(true);
+    try {
+      const created = await api.post<{ id: number }>("/pos/return", {
+        saleId: returnOrderId,
+        warehouseId: returnWarehouseId,
+        date: returnDate,
+        lines: payloadLines,
+      });
+      setReturnLines((prev) => prev.map((line) => ({ ...line, quantity: 0 })));
+      await loadReturnOrders();
+      setToast("Devoluci\u00f3n registrada");
+      setTimeout(() => setToast(null), 3000);
+      if (created?.id) {
+        setLastReportId(created.id);
+        setLastReportLabel("Devolucion");
+      }
+    } catch (err) {
+      setStatus(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -883,7 +929,9 @@ export default function PosPage() {
             <strong className="pos-strong">
               Total devolucion: {returnTotal.toFixed(2)}
             </strong>
-            <button onClick={submitReturn}>Procesar devolucion</button>
+            <button onClick={submitReturn} disabled={submitting}>
+              {submitting ? "Procesando..." : "Procesar devolucion"}
+            </button>
           </div>
           {lastReportId && lastReportLabel === "Devolucion" && (
             <div className="row">
@@ -1357,10 +1405,14 @@ export default function PosPage() {
                   <strong className="pos-strong">Total: {total.toFixed(2)}</strong>
                 )}
                 {mode === "transfer" && (
-                  <button onClick={submitTransfer}>Procesar traspaso</button>
+                  <button onClick={submitTransfer} disabled={submitting}>
+                    {submitting ? "Procesando..." : "Procesar traspaso"}
+                  </button>
                 )}
                 {mode === "waste" && (
-                  <button onClick={submitWaste}>Registrar merma</button>
+                  <button onClick={submitWaste} disabled={submitting}>
+                    {submitting ? "Procesando..." : "Registrar merma"}
+                  </button>
                 )}
               </div>
               {lastReportId && lastReportLabel === "Venta" && (
@@ -1400,8 +1452,12 @@ export default function PosPage() {
                       %
                     </span>
                   </div>
-                  <button className="pos-summary-action" onClick={submitSale}>
-                    Finalizar venta
+                  <button
+                    className="pos-summary-action"
+                    onClick={submitSale}
+                    disabled={submitting}
+                  >
+                    {submitting ? "Procesando..." : "Finalizar venta"}
                   </button>
                 </div>
               </aside>
