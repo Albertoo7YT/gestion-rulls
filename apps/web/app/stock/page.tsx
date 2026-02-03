@@ -15,6 +15,8 @@ type StockRow = {
   sku: string;
   name: string;
   manufacturerRef?: string | null;
+  cost?: number | null;
+  rrp?: number | null;
   quantity: number;
 };
 
@@ -93,6 +95,22 @@ export default function StockPage() {
     () => filtered.reduce((acc, row) => acc + row.quantity, 0),
     [filtered],
   );
+  const totalCostValue = useMemo(
+    () =>
+      filtered.reduce(
+        (acc, row) => acc + row.quantity * Number(row.cost ?? 0),
+        0,
+      ),
+    [filtered],
+  );
+  const totalPvpValue = useMemo(
+    () =>
+      filtered.reduce(
+        (acc, row) => acc + row.quantity * Number(row.rrp ?? 0),
+        0,
+      ),
+    [filtered],
+  );
 
   return (
     <div className="stack">
@@ -139,6 +157,8 @@ export default function StockPage() {
               <th>Nombre</th>
               <th>Ref interna</th>
               <th>Cantidad</th>
+              <th>Coste</th>
+              <th>PVP</th>
             </tr>
           </thead>
           <tbody>
@@ -148,11 +168,13 @@ export default function StockPage() {
                 <td>{row.name}</td>
                 <td>{row.manufacturerRef ?? "-"}</td>
                 <td>{row.quantity}</td>
+                <td>{Number(row.cost ?? 0).toFixed(2)}</td>
+                <td>{Number(row.rrp ?? 0).toFixed(2)}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={4} className="muted">
+                <td colSpan={6} className="muted">
                   Sin stock para esta ubicacion
                 </td>
               </tr>
@@ -162,6 +184,16 @@ export default function StockPage() {
             <tr>
               <th colSpan={3}>Total</th>
               <th>{totalQuantity}</th>
+              <th>{totalCostValue.toFixed(2)}</th>
+              <th>{totalPvpValue.toFixed(2)}</th>
+            </tr>
+            <tr>
+              <th colSpan={4}>Valor stock (coste)</th>
+              <th colSpan={2}>{totalCostValue.toFixed(2)}</th>
+            </tr>
+            <tr>
+              <th colSpan={4}>Valor stock (PVP)</th>
+              <th colSpan={2}>{totalPvpValue.toFixed(2)}</th>
             </tr>
           </tfoot>
         </table>

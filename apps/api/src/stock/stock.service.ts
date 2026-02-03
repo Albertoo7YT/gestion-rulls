@@ -16,11 +16,20 @@ export class StockService {
     }
 
     const rows = await this.prisma.$queryRaw<
-      { sku: string; name: string; manufacturerRef: string | null; quantity: number }[]
+      {
+        sku: string;
+        name: string;
+        manufacturerRef: string | null;
+        cost: number | null;
+        rrp: number | null;
+        quantity: number;
+      }[]
     >`
       SELECT p."sku",
              p."name",
              p."manufacturerRef",
+             p."cost",
+             p."rrp",
              CAST(COALESCE(inc.in_qty, 0) - COALESCE(outg.out_qty, 0) AS INTEGER) AS quantity
       FROM "Product" p
       LEFT JOIN (
