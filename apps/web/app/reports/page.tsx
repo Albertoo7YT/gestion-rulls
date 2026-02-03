@@ -34,6 +34,8 @@ type SummaryRow = {
   returnsUnits: number;
   returnsRevenue: number;
   returnsCost: number;
+  wasteUnits: number;
+  wasteCost: number;
 };
 
 type DepositSummary = {
@@ -271,6 +273,14 @@ export default function ReportsPage() {
             <div className="kpi-card">
               <span className="muted">Ventas</span>
               <strong>{summary.orders}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="muted">Mermas (uds)</span>
+              <strong>{summary.wasteUnits}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="muted">Mermas (coste)</span>
+              <strong>{summary.wasteCost.toFixed(2)}</strong>
             </div>
           </div>
         ) : (

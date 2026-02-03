@@ -85,7 +85,9 @@ type ReturnLine = {
 };
 
 export default function PosPage() {
-  const [mode, setMode] = useState<"sale" | "transfer" | "return">("sale");
+  const [mode, setMode] = useState<"sale" | "transfer" | "return" | "waste">(
+    "sale",
+  );
   const [products, setProducts] = useState<Product[]>([]);
   const [accessories, setAccessories] = useState<Accessory[]>([]);
   const [warehouses, setWarehouses] = useState<Location[]>([]);
@@ -113,6 +115,10 @@ export default function PosPage() {
   const [returnDate, setReturnDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
+  const [wasteDate, setWasteDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [wasteReason, setWasteReason] = useState("");
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<
@@ -592,6 +598,34 @@ export default function PosPage() {
     setLines([]);
   }
 
+  async function submitWaste() {
+    setStatus(null);
+    if (!fromId || lines.length === 0) return;
+    const wasteLines = lines.filter((line) => (line.quantity ?? 0) > 0);
+    if (wasteLines.length === 0) {
+      setStatus("Introduce al menos una cantidad");
+      return;
+    }
+    if (!wasteReason.trim()) {
+      setStatus("Indica el motivo de la merma/rotura");
+      return;
+    }
+    await api.post("/moves/adjust", {
+      locationId: fromId,
+      direction: "out",
+      date: wasteDate,
+      notes: `MERMA | ${wasteReason.trim()}`,
+      lines: wasteLines.map((line) => ({
+        sku: line.sku,
+        quantity: line.quantity ?? 0,
+      })),
+    });
+    setLines([]);
+    setWasteReason("");
+    setToast("Merma registrada");
+    setTimeout(() => setToast(null), 3000);
+  }
+
   async function submitReturn() {
     setStatus(null);
     if (!returnOrderId) {
@@ -680,6 +714,12 @@ export default function PosPage() {
           onClick={() => setMode("return")}
         >
           Devolucion
+        </button>
+        <button
+          className={`btn-lg tab-button ${mode === "waste" ? "active" : ""}`}
+          onClick={() => setMode("waste")}
+        >
+          Baja
         </button>
       </div>
 
@@ -862,7 +902,13 @@ export default function PosPage() {
           <div className="card stack section-card">
             <div className="section-title pos-section-title">
               <span className="section-number">1</span>
-              <strong className="pos-section-heading">Cliente</strong>
+              <strong className="pos-section-heading">
+                {mode === "sale"
+                  ? "Cliente"
+                  : mode === "transfer"
+                  ? "Traspaso"
+                  : "Baja de stock"}
+              </strong>
             </div>
             <div className="row">
               <label className="stack">
@@ -980,7 +1026,31 @@ export default function PosPage() {
                   </select>
                 </label>
               )}
+              {mode === "waste" && (
+                <label className="stack">
+                  <span className="muted">Fecha</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={wasteDate}
+                    onChange={(e) => setWasteDate(e.target.value)}
+                  />
+                </label>
+              )}
             </div>
+            {mode === "waste" && (
+              <div className="row">
+                <label className="stack" style={{ flex: 1 }}>
+                  <span className="muted">Motivo (obligatorio)</span>
+                  <input
+                    className="input"
+                    value={wasteReason}
+                    onChange={(e) => setWasteReason(e.target.value)}
+                    placeholder="Ej: montura rota, lente rayada..."
+                  />
+                </label>
+              </div>
+            )}
 
             {mode === "sale" && (
               <div className="stack">
@@ -1265,8 +1335,11 @@ export default function PosPage() {
                 {mode === "sale" && (
                   <strong className="pos-strong">Total: {total.toFixed(2)}</strong>
                 )}
-                {mode !== "sale" && (
+                {mode === "transfer" && (
                   <button onClick={submitTransfer}>Procesar traspaso</button>
+                )}
+                {mode === "waste" && (
+                  <button onClick={submitWaste}>Registrar merma</button>
                 )}
               </div>
               {lastReportId && lastReportLabel === "Venta" && (

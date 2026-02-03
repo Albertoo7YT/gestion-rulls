@@ -314,6 +314,22 @@ export default function PurchasesPage() {
     await refreshOrders();
   }
 
+  async function deleteOrder(orderId: number, number: string) {
+    const ok = window.confirm(
+      `Eliminar la entrada ${number}? Si ya estaba recibida, se revertira el stock de esta entrada.`,
+    );
+    if (!ok) return;
+    setStatus(null);
+    try {
+      await api.del(`/purchase-orders/${orderId}`);
+      await refreshOrders();
+      if (editingOrderId === orderId) resetEditor();
+      setStatus("Entrada eliminada.");
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo eliminar la entrada.");
+    }
+  }
+
   return (
     <div className="stack">
       <h2>Entradas</h2>
@@ -746,6 +762,12 @@ export default function PurchasesPage() {
                       Recibir
                     </button>
                   )}
+                  <button
+                    className="secondary"
+                    onClick={() => deleteOrder(o.id, o.number)}
+                  >
+                    Eliminar
+                  </button>
                 </td>
               </tr>
             ))}

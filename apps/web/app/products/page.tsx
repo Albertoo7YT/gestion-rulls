@@ -282,7 +282,14 @@ export default function ProductsPage() {
       await loadProducts();
       setStatus("TMP creado.");
     } catch (err: any) {
-      setStatus(err?.message ?? "No se pudo crear el TMP.");
+      const message = String(err?.message ?? "");
+      if (message.toLowerCase().includes("request entity too large")) {
+        setStatus(
+          "La imagen es demasiado grande. Sube una imagen mas pequena.",
+        );
+      } else {
+        setStatus(err?.message ?? "No se pudo crear el TMP.");
+      }
     } finally {
       setQuickCreating(false);
     }
@@ -334,7 +341,14 @@ export default function ProductsPage() {
       await loadProducts();
       setStatus("TMP creado.");
     } catch (err: any) {
-      setStatus(err?.message ?? "No se pudo crear el TMP.");
+      const message = String(err?.message ?? "");
+      if (message.toLowerCase().includes("request entity too large")) {
+        setStatus(
+          "La imagen es demasiado grande. Sube una imagen mas pequena.",
+        );
+      } else {
+        setStatus(err?.message ?? "No se pudo crear el TMP.");
+      }
     }
   }
 
@@ -700,19 +714,34 @@ export default function ProductsPage() {
   }
 
   async function handlePhotoFile(file: File) {
-    const dataUrl = await toDataUrl(file);
-    setStandardForm({ ...standardForm, photoDataUrl: dataUrl });
+    try {
+      const dataUrl = await toOptimizedDataUrl(file);
+      setStandardForm({ ...standardForm, photoDataUrl: dataUrl });
+      setStatus(null);
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo cargar la imagen.");
+    }
   }
 
   async function handleQuickPhotoFile(file: File) {
-    const dataUrl = await toDataUrl(file);
-    setQuickForm({ ...quickForm, photoDataUrl: dataUrl });
+    try {
+      const dataUrl = await toOptimizedDataUrl(file);
+      setQuickForm({ ...quickForm, photoDataUrl: dataUrl });
+      setStatus(null);
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo cargar la imagen.");
+    }
   }
 
   async function handleEditPhotoFile(file: File) {
     if (!editing) return;
-    const dataUrl = await toDataUrl(file);
-    setEditing({ ...editing, photoUrl: dataUrl });
+    try {
+      const dataUrl = await toOptimizedDataUrl(file);
+      setEditing({ ...editing, photoUrl: dataUrl });
+      setStatus(null);
+    } catch (err: any) {
+      setStatus(err?.message ?? "No se pudo cargar la imagen.");
+    }
   }
 
   return (
@@ -1707,5 +1736,38 @@ function toDataUrl(file: File): Promise<string> {
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
+  });
+}
+
+async function toOptimizedDataUrl(file: File): Promise<string> {
+  const maxInputMb = 12;
+  const maxInputBytes = maxInputMb * 1024 * 1024;
+  if (file.size > maxInputBytes) {
+    throw new Error(`La imagen supera ${maxInputMb}MB.`);
+  }
+  const raw = await toDataUrl(file);
+  if (!file.type.startsWith("image/")) {
+    return raw;
+  }
+  const image = await loadImage(raw);
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return raw;
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.82);
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
   });
 }

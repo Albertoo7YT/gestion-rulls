@@ -43,7 +43,7 @@ export default function SuppliersPage() {
       setStatus("El nombre es obligatorio.");
       return;
     }
-    setStatus(null);
+    setStatus("Guardando proveedor...");
     const payload = {
       name: form.name.trim(),
       taxId: form.taxId.trim() || undefined,
@@ -59,6 +59,7 @@ export default function SuppliersPage() {
       }
       await refresh();
       resetForm();
+      setStatus("Proveedor guardado.");
     } catch (err: any) {
       setStatus(err?.message ?? "No se pudo guardar el proveedor.");
     }
@@ -136,9 +137,11 @@ export default function SuppliersPage() {
           </label>
         </div>
         <div className="row">
-          <button onClick={submit}>{editingId ? "Guardar" : "Crear"}</button>
+          <button type="button" onClick={submit}>
+            {editingId ? "Guardar" : "Crear"}
+          </button>
           {editingId && (
-            <button className="secondary" onClick={resetForm}>
+            <button type="button" className="secondary" onClick={resetForm}>
               Cancelar
             </button>
           )}
@@ -166,10 +169,18 @@ export default function SuppliersPage() {
                 <td>{s.email ?? "-"}</td>
                 <td>{s.phone ?? "-"}</td>
                 <td>
-                  <button className="secondary" onClick={() => startEdit(s)}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => startEdit(s)}
+                  >
                     Editar
                   </button>
-                  <button className="secondary" onClick={() => removeSupplier(s.id)}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => removeSupplier(s.id)}
+                  >
                     Eliminar
                   </button>
                 </td>

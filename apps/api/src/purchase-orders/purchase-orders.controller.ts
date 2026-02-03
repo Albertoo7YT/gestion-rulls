@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -55,5 +56,10 @@ export class PurchaseOrdersController {
     @Body() body: ReceivePurchaseOrderDto,
   ) {
     return this.purchaseOrdersService.receive(id, body);
+  }
+
+  @Delete(":id")
+  remove(@Param("id", ParseIntPipe) id: number) {
+    return this.purchaseOrdersService.remove(id);
   }
 }

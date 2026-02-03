@@ -1083,6 +1083,45 @@ export class ReportsService {
     const revenuePaid = row.revenuePaid ?? 0;
     let revenuePending = revenue - revenuePaid;
 
+    const wasteDateFilter: Prisma.DateTimeFilter = {};
+    if (query.from) {
+      const from = new Date(query.from);
+      if (!Number.isNaN(from.getTime())) {
+        wasteDateFilter.gte = from;
+      }
+    }
+    if (query.to) {
+      const to = new Date(query.to);
+      if (!Number.isNaN(to.getTime())) {
+        wasteDateFilter.lte = to;
+      }
+    }
+    const wasteMoveWhere: Prisma.StockMoveWhereInput = {
+      type: StockMoveType.adjust,
+      fromId: { not: null },
+      notes: { contains: "MERMA", mode: "insensitive" },
+      ...(Object.keys(wasteDateFilter).length ? { date: wasteDateFilter } : {}),
+    };
+    const wasteLines = await this.prisma.stockMoveLine.findMany({
+      where: { move: wasteMoveWhere },
+      select: { sku: true, quantity: true },
+    });
+    const wasteUnits = wasteLines.reduce((sum, line) => sum + line.quantity, 0);
+    const wasteSkus = Array.from(new Set(wasteLines.map((line) => line.sku)));
+    const wasteProducts = wasteSkus.length
+      ? await this.prisma.product.findMany({
+          where: { sku: { in: wasteSkus } },
+          select: { sku: true, cost: true },
+        })
+      : [];
+    const wasteCostMap = new Map(
+      wasteProducts.map((product) => [product.sku, Number(product.cost ?? 0)]),
+    );
+    const wasteCost = wasteLines.reduce(
+      (sum, line) => sum + (wasteCostMap.get(line.sku) ?? 0) * line.quantity,
+      0,
+    );
+
     if (query.channel === "WEB") {
       const webWhere: Prisma.WebOrderWhereInput = {};
       const cutoff = new Date("2026-01-01T00:00:00.000Z");
@@ -1150,6 +1189,8 @@ export class ReportsService {
       returnsUnits: returnRow.units ?? 0,
       returnsRevenue: returnRow.revenue ?? 0,
       returnsCost: returnRow.cost ?? 0,
+      wasteUnits,
+      wasteCost,
     };
   }
 

@@ -236,6 +236,38 @@ export class PurchaseOrdersService {
     });
   }
 
+  async remove(id: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id },
+        select: { id: true, number: true, status: true },
+      });
+      if (!order) {
+        throw new NotFoundException("Purchase order not found");
+      }
+
+      // If it was already received, remove generated purchase moves so stock is rolled back.
+      if (order.status === "received") {
+        const moves = await tx.stockMove.findMany({
+          where: {
+            type: StockMoveType.purchase,
+            reference: order.number,
+          },
+          select: { id: true },
+        });
+        const moveIds = moves.map((m) => m.id);
+        if (moveIds.length) {
+          await tx.stockMoveLine.deleteMany({ where: { moveId: { in: moveIds } } });
+          await tx.stockMove.deleteMany({ where: { id: { in: moveIds } } });
+        }
+      }
+
+      await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: id } });
+      await tx.purchaseOrder.delete({ where: { id } });
+      return { ok: true };
+    });
+  }
+
   private async ensureProductsExistOrCreate(
     tx: Prisma.TransactionClient,
     lines: {

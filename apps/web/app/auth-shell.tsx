@@ -234,9 +234,9 @@ export default function AuthShell({ children }: PropsWithChildren) {
           <details className="nav-section" open={openAlmacenes}>
             <summary className="nav-section-title">Almacenes</summary>
             <div className="nav-sub">
-              <a href="/locations" onClick={handleNavClick("/locations")}>Almacenes</a>
-              <a href="/stock" onClick={handleNavClick("/stock")}>Stock</a>
               <a href="/purchases" onClick={handleNavClick("/purchases")}>Entradas</a>
+              <a href="/stock" onClick={handleNavClick("/stock")}>Stock</a>
+              <a href="/locations" onClick={handleNavClick("/locations")}>Almacenes</a>
               <a href="/suppliers" onClick={handleNavClick("/suppliers")}>Proveedores</a>
             </div>
           </details>

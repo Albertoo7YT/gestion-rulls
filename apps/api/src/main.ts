@@ -6,8 +6,8 @@ import { HttpErrorFilter } from "./common/filters/http-exception.filter";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use(json({ limit: "12mb" }));
-  app.use(urlencoded({ extended: true, limit: "12mb" }));
+  app.use(json({ limit: "25mb" }));
+  app.use(urlencoded({ extended: true, limit: "25mb" }));
   const corsOrigins = [
     "http://localhost:3000",
     "http://192.168.1.25:3000",
